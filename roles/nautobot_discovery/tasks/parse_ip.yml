@@ -1,0 +1,15 @@
+---
+# Parse IP address using Python's ipaddress module
+- name: Parse IP address
+  ansible.builtin.command: python -c "import ipaddress; interface = ipaddress.ip_interface('{{ ip }}'); print(str(interface.ip)); print(str(interface.network.prefixlen)); print(str(interface.network))"
+  register: ip_compute
+  changed_when: false
+  # Extracts host IP, prefix length, and network from the input IP
+
+# Set parsed IP facts for reuse
+- name: Set IP facts
+  ansible.builtin.set_fact:
+    ip_host: "{{ ip_compute.stdout_lines[0] }}"
+    ip_mask: "{{ ip_compute.stdout_lines[1] }}"
+    ip_prefix: "{{ ip_compute.stdout_lines[2] }}"
+  # Stores ip_host (e.g., 10.0.0.1), ip_mask (e.g., 24), ip_prefix (e.g., 10.0.0.0/24)

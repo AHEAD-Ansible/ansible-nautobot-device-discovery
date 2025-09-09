@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: grok
+  description: Upload device facts to Nautobot
+  license: MIT
+
+dependencies: []
+
+collections:
+  - networktocode.nautobot
+  - ansible.netcommon

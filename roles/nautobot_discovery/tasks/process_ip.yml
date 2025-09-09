@@ -1,0 +1,102 @@
+---
+- name: Parse IP address and prefix
+  ansible.builtin.include_tasks: parse_ip.yml
+
+- name: Look up IP address in Nautobot
+  ansible.builtin.include_tasks: lookup_and_normalize.yml
+  vars:
+    endpoint: 'ip-addresses'
+    filter_query: 'address={{ ip }} namespace={{ nautobot_namespace }}'
+    additional_filter: ' depth=1'
+    var_name: ip_lookup
+    list_var: ip_list
+
+- name: Debug IP lookup result
+  ansible.builtin.debug:
+    msg: "IP {{ ip }} lookup result: {{ ip_lookup }}"
+  when: ip_list | length > 0
+
+- name: Check if IP exists
+  ansible.builtin.set_fact:
+    ip_exists: "{{ ip_list | length > 0 }}"
+
+- name: Determine if IP is correctly assigned (has the interface if provided)
+  ansible.builtin.set_fact:
+    ip_correctly_assigned: "{{ ip_exists and (interface_id is not defined or (ip_list[0].interfaces | default([]) | selectattr('id', 'equalto', interface_id) | list | length > 0)) }}"
+  when: ip_exists
+
+- name: Get bad assignments (interfaces other than the current)
+  ansible.builtin.set_fact:
+    bad_interfaces: "{{ ip_list[0].interfaces | default([]) | rejectattr('id', 'equalto', interface_id) | map(attribute='id') | list if interface_id is defined else [] }}"
+  when: ip_exists and interface_id is defined
+
+- name: Check for conflicts (has bad assignments)
+  ansible.builtin.set_fact:
+    has_conflict: "{{ ip_exists and bad_interfaces | default([]) | length > 0 }}"
+
+- name: Fail if conflict and neither overwrite nor next available allowed
+  ansible.builtin.fail:
+    msg: "IP {{ ip }} is in use by another interface in namespace {{ nautobot_namespace }} and neither allow_ip_overwrite nor use_next_available_on_conflict is true"
+  when: has_conflict and not (allow_ip_overwrite | bool or use_next_available_on_conflict | bool)
+
+- name: Handle conflict with next available if enabled
+  block:
+    - name: Allocate next available IP from parent prefix
+      networktocode.nautobot.ip_address:
+        url: "{{ nautobot_url }}"
+        token: "{{ nautobot_token }}"
+        parent: "{{ prefix_ids[ip_prefix] if prefix_ids[ip_prefix] is defined else ip_prefix }}"
+        state: new
+        validate_certs: "{{ nautobot_validate_certs }}"
+      register: next_ip
+
+    - name: Update IP to next available
+      ansible.builtin.set_fact:
+        ip: "{{ next_ip.ip_address.address }}"
+        ip_obj: "{{ next_ip.ip_address }}"
+
+    - name: Reparse updated IP
+      ansible.builtin.include_tasks: parse_ip.yml
+  when: has_conflict and use_next_available_on_conflict | bool
+
+- name: Resolve conflicts by unassigning bad interfaces if overwrite allowed
+  networktocode.nautobot.ip_address_to_interface:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    ip_address: "{{ ip_list[0].id }}"
+    interface: "{{ bad_int }}"
+    state: absent
+    validate_certs: "{{ nautobot_validate_certs }}"
+  loop: "{{ bad_interfaces | default([]) }}"
+  loop_control:
+    loop_var: bad_int
+  when: has_conflict and allow_ip_overwrite | bool and not use_next_available_on_conflict | bool
+
+- name: Create IP if not exists
+  networktocode.nautobot.ip_address:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    address: "{{ ip }}"
+    status: "{{ nautobot_status }}"
+    state: present
+    namespace: "{{ nautobot_namespace }}"
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - namespace
+      - address
+  register: ip_create
+  when: not ip_exists
+
+- name: Set IP object
+  ansible.builtin.set_fact:
+    ip_obj: "{{ ip_create.ip_address if ip_create.changed else ip_list[0] if ip_list | length > 0 else {} }}"
+
+- name: Assign IP to interface if provided
+  networktocode.nautobot.ip_address_to_interface:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    ip_address: "{{ ip_obj.id }}"
+    interface: "{{ interface_id }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+  when: ip_obj.id is defined and interface_id is defined and not (ip_correctly_assigned | default(false))

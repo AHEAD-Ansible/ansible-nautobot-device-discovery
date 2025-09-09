@@ -1,0 +1,31 @@
+---
+- name: Ensure interface exists
+  networktocode.nautobot.device_interface:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ intf.name }}"
+    device: "{{ device.name }}"
+    type: "{{ intf.type }}"
+    enabled: true
+    status: "{{ nautobot_status }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - device
+      - name
+  register: intf_result
+
+- name: Process prefix for each IP
+  include_tasks: process_prefix.yml
+  loop: "{{ intf.ip_addresses | default([]) }}"
+  loop_control:
+    loop_var: ip
+
+- name: Process each IP address
+  include_tasks: process_ip.yml
+  loop: "{{ intf.ip_addresses | default([]) }}"
+  loop_control:
+    loop_var: ip
+  vars:
+    interface_id: "{{ intf_result.interface.id }}"
+    device_id: "{{ device_id }}"

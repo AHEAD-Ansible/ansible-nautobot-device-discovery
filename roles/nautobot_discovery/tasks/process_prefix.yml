@@ -1,0 +1,35 @@
+---
+- name: Parse IP address and prefix
+  ansible.builtin.include_tasks: parse_ip.yml
+
+- name: Check if exact prefix exists
+  include_tasks: lookup_and_normalize.yml
+  vars:
+    endpoint: 'prefixes'
+    filter_query: 'prefix={{ ip_prefix }} namespace={{ nautobot_namespace }}'
+    var_name: exact_prefix
+    list_var: exact_list
+
+- name: Create prefix if not exists
+  networktocode.nautobot.prefix:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    prefix: "{{ ip_prefix }}"
+    namespace: "{{ nautobot_namespace }}"
+    status: "{{ nautobot_status }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - prefix
+      - namespace
+  register: prefix_create
+  when: exact_list | length == 0
+
+- name: Set parent prefix ID
+  ansible.builtin.set_fact:
+    parent_prefix_id: "{{ prefix_create.prefix.id if prefix_create.changed else exact_list[0].id if exact_list | length > 0 else omit }}"
+
+- name: Store prefix ID in dict
+  ansible.builtin.set_fact:
+    prefix_ids: "{{ prefix_ids | combine({ip_prefix: parent_prefix_id}) }}"
+  when: parent_prefix_id is not none and parent_prefix_id != omit

@@ -1,0 +1,331 @@
+---
+# Ensure manufacturer exists in Nautobot
+- name: Ensure manufacturer exists
+  networktocode.nautobot.manufacturer:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ device.vendor }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - name
+  register: manufacturer
+
+# Ensure platform exists for the device
+- name: Ensure platform exists
+  networktocode.nautobot.platform:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ device.platform }}"
+    manufacturer: "{{ manufacturer.manufacturer.name }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - name
+      - manufacturer
+  register: platform
+
+# Ensure device role exists
+- name: Ensure device role exists
+  networktocode.nautobot.role:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ device.device_type }}"
+    color: ff0000
+    content_types: ["dcim.device"]
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - name
+  register: role
+
+# Ensure device type exists
+- name: Ensure device type exists
+  networktocode.nautobot.device_type:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    model: "{{ device.model }}"
+    manufacturer: "{{ manufacturer.manufacturer.name }}"
+    u_height: 1
+    is_full_depth: false
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - model
+      - manufacturer
+  register: device_type
+
+# Ensure tenant exists if specified
+- name: Ensure tenant exists
+  block:
+    - include_tasks: lookup_and_normalize.yml
+      vars:
+        endpoint: 'tenants'
+        filter_query: 'name={{ device.tenant }}'
+        var_name: tenant_lookup
+        list_var: tenant_list
+    - name: Create tenant if not found and allowed
+      networktocode.nautobot.tenant:
+        url: "{{ nautobot_url }}"
+        token: "{{ nautobot_token }}"
+        name: "{{ device.tenant }}"
+        state: present
+        validate_certs: "{{ nautobot_validate_certs }}"
+        query_params:
+          - name
+      register: tenant_created
+      when: tenant_list | length == 0 and create_missing_tenants | bool
+    - name: Set tenant fact
+      ansible.builtin.set_fact:
+        tenant: "{{ tenant_created.tenant if tenant_created.changed else tenant_list[0] if tenant_list | length > 0 else {} }}"
+    - name: Fail if tenant not found and creation not allowed
+      ansible.builtin.fail:
+        msg: "Tenant {{ device.tenant }} not found and create_missing_tenants is false"
+      when: tenant | length == 0 and not create_missing_tenants | bool
+  when: device.tenant is defined
+
+# Ensure software version exists if specified
+- name: Ensure software version exists
+  block:
+    - include_tasks: lookup_and_normalize.yml
+      vars:
+        endpoint: 'software-versions'
+        filter_query: 'version={{ device.software_version }} platform={{ platform.platform.id }}'
+        var_name: software_lookup
+        list_var: software_list
+    - name: Create software version if not found and allowed
+      networktocode.nautobot.software_version:
+        url: "{{ nautobot_url }}"
+        token: "{{ nautobot_token }}"
+        version: "{{ device.software_version }}"
+        platform: "{{ platform.platform.id }}"
+        status: "{{ nautobot_status }}"
+        state: present
+        validate_certs: "{{ nautobot_validate_certs }}"
+      register: software_created
+      when: software_list | length == 0 and create_missing_software_versions | bool
+    - name: Set software fact
+      ansible.builtin.set_fact:
+        software_version: "{{ software_created.software_version if software_created.changed else software_list[0] if software_list | length > 0 else {} }}"
+    - name: Fail if software version not found and creation not allowed
+      ansible.builtin.fail:
+        msg: "Software version {{ device.software_version }} not found for platform {{ platform.platform.name }} and create_missing_software_versions is false"
+      when: software_version | length == 0 and not create_missing_software_versions | bool
+  when: device.software_version is defined
+
+# Lookup location (site) for the device
+- name: Lookup location
+  include_tasks: lookup_and_normalize.yml
+  vars:
+    endpoint: 'locations'
+    filter_query: 'name={{ device.location }}'
+    var_name: location_lookup
+    list_var: location_list
+
+# Create location if not found and allowed
+- name: Create location if not found and allowed
+  networktocode.nautobot.location:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ device.location }}"
+    status: "{{ nautobot_status }}"
+    location_type: "Site"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - name
+  register: location_created
+  when: location_list | length == 0 and create_missing_locations | bool
+
+# Set location fact
+- name: Set location fact
+  ansible.builtin.set_fact:
+    location: "{{ location_created.location if location_created.changed else location_list[0] if location_list | length > 0 else {} }}"
+
+# Fail if location not found and creation not allowed
+- name: Fail if location not found and creation not allowed
+  ansible.builtin.fail:
+    msg: "Location {{ device.location }} not found and create_missing_locations is false"
+  when: location | length == 0 and not create_missing_locations | bool
+
+# Lookup rack only if specified
+- name: Lookup rack
+  include_tasks: lookup_and_normalize.yml
+  vars:
+    endpoint: 'racks'
+    filter_query: 'name={{ device.rack }} location={{ location.id }}'
+    var_name: rack_lookup
+    list_var: rack_list
+  when: device.rack is defined and location.id is defined
+
+# Create rack if not found and allowed
+- name: Create rack if not found and allowed
+  networktocode.nautobot.rack:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ device.rack }}"
+    location: "{{ location.name }}"
+    status: "{{ nautobot_status }}"
+    type: "4-post-cabinet"
+    width: 19
+    u_height: 42
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - name
+      - location
+  register: rack_created
+  when: device.rack is defined and rack_list | length == 0 and create_missing_racks | bool and location.id is defined
+
+# Set rack fact
+- name: Set rack fact
+  ansible.builtin.set_fact:
+    rack: "{{ rack_created.rack if rack_created.changed else rack_list[0] if rack_list | length > 0 else {} }}"
+  when: device.rack is defined and location.id is defined
+
+# Fail if rack not found and creation not allowed
+- name: Fail if rack not found and creation not allowed
+  ansible.builtin.fail:
+    msg: "Rack {{ device.rack }} not found in location {{ device.location }} and create_missing_racks is false"
+  when: device.rack is defined and rack | length == 0 and not create_missing_racks | bool and location.id is defined
+
+# Ensure tags exist (optional, only if tags are provided)
+- name: Ensure tags exist
+  networktocode.nautobot.tag:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ tag_item }}"
+    content_types: ["dcim.device"]
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - name
+  loop: "{{ device.tags | default([]) }}"
+  loop_control:
+    loop_var: tag_item
+  when: device.tags is defined and device.tags | length > 0
+
+# Set dependency IDs
+- name: Set dependency IDs
+  ansible.builtin.set_fact:
+    manufacturer_id: "{{ manufacturer.manufacturer.id }}"
+    platform_id: "{{ platform.platform.id }}"
+    device_type_id: "{{ device_type.device_type.id }}"
+    role_id: "{{ role.role.id }}"
+    location_id: "{{ location.id | default('') }}"
+    tenant_id: "{{ tenant.id | default(omit) }}"
+    software_version_id: "{{ software_version.id | default(omit) }}"
+
+# Lookup device by serial number
+- name: Lookup device by serial number
+  include_tasks: lookup_and_normalize.yml
+  vars:
+    endpoint: 'devices'
+    filter_query: 'serial={{ device.serial_number }}'
+    var_name: existing_device
+    list_var: existing_device_list
+
+# Create device in Nautobot without primary
+- name: Create device in Nautobot without primary
+  networktocode.nautobot.device:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ device.name }}"
+    serial: "{{ device.serial_number }}"
+    device_type: "{{ device.model }}"
+    role: "{{ device.device_type }}"
+    platform: "{{ device.platform }}"
+    location: "{{ device.location }}"
+    status: "{{ device.status | default(nautobot_status) }}"
+    custom_fields: "{{ device.custom_fields | default({}) }}"
+    tags: "{{ device.tags | default(omit) }}"
+    asset_tag: "{{ device.asset_tag | default(omit) }}"
+    rack: "{{ rack.name if device.rack is defined and rack.name is defined else omit }}"
+    position: "{{ device.position if device.rack is defined else omit }}"
+    face: "{{ device.face if device.rack is defined else omit }}"
+    tenant: "{{ device.tenant | default(omit) }}"
+    software_version: "{{ software_version_id | default(omit) }}"
+    comments: "{{ device.comments | default(omit) }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - serial
+  register: device_create
+  when: existing_device_list | length == 0
+
+# Set device ID
+- name: Set device ID
+  ansible.builtin.set_fact:
+    device_id: "{{ device_create.device.id if device_create.changed else existing_device_list[0].id if existing_device_list | length > 0 else omit }}"
+
+# Process interfaces
+- name: Process interfaces
+  ansible.builtin.include_tasks: process_interface.yml
+  loop: "{{ device.interfaces | default([]) }}"
+  loop_control:
+    loop_var: intf
+  when: device.interfaces is defined
+
+# Parse primary IP address if defined
+- name: Parse primary IP address
+  ansible.builtin.include_tasks: parse_ip.yml
+  vars:
+    ip: "{{ device.primary_ip4 }}"
+  when: device.primary_ip4 is defined
+
+# Set primary IP facts
+- name: Set primary IP facts
+  ansible.builtin.set_fact:
+    primary_host: "{{ ip_host }}"
+    primary_mask: "{{ ip_mask }}"
+  when: device.primary_ip4 is defined
+
+# Look up primary IP in Nautobot
+- name: Look up primary IP in Nautobot
+  ansible.builtin.include_tasks: lookup_and_normalize.yml
+  vars:
+    endpoint: 'ip-addresses'
+    filter_query: 'address={{ device.primary_ip4 }} namespace={{ nautobot_namespace }}'
+    var_name: primary_ip4_lookup
+    list_var: primary_ip4_list
+  when: device.primary_ip4 is defined
+
+# Set primary IP object
+- name: Set primary IP object
+  ansible.builtin.set_fact:
+    primary_ip4_obj: "{{ primary_ip4_list[0] if primary_ip4_list | length > 0 else {} }}"
+  when: device.primary_ip4 is defined
+
+# Fail if primary IP is not assigned
+- name: Fail if primary IP is not assigned
+  ansible.builtin.fail:
+    msg: "Primary IP {{ device.primary_ip4 }} is not assigned to any interface on the device"
+  when: device.primary_ip4 is defined and primary_ip4_obj | length == 0
+
+# Update device with primary IP
+- name: Update device with primary IP
+  networktocode.nautobot.device:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ device.name }}"
+    serial: "{{ device.serial_number }}"
+    device_type: "{{ device.model }}"
+    role: "{{ device.device_type }}"
+    platform: "{{ device.platform }}"
+    location: "{{ device.location }}"
+    status: "{{ device.status | default(nautobot_status) }}"
+    custom_fields: "{{ device.custom_fields | default({}) }}"
+    tags: "{{ device.tags | default(omit) }}"
+    asset_tag: "{{ device.asset_tag | default(omit) }}"
+    rack: "{{ rack.name if device.rack is defined and rack.name is defined else omit }}"
+    position: "{{ device.position if device.rack is defined else omit }}"
+    face: "{{ device.face if device.rack is defined else omit }}"
+    tenant: "{{ device.tenant | default(omit) }}"
+    primary_ip4: "{{ primary_ip4_obj.id if primary_ip4_obj.id is defined else omit }}"
+    software_version: "{{ software_version_id | default(omit) }}"
+    comments: "{{ device.comments | default(omit) }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - serial
+  when: device.primary_ip4 is defined and primary_ip4_obj.id is defined

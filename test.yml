@@ -1,0 +1,90 @@
+---
+- name: Upload F5 Device Facts to Nautobot
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+#    nautobot_url: "https://<domain>"  - Required.
+#    nautobot_token: <Token Here>
+    device_facts:
+      - name: "f5-lb-prod-01"
+        serial_number: "F5-SN-ABC123456"
+        vendor: "F5"
+        model: "BIG-IP 4000"
+        device_type: "Load Balancer"
+        location: "DataCenter-East"
+        platform: "tmos"
+        interfaces:
+          - name: "1.1"
+            type: "1000base-t"
+            ip_addresses:
+              - "10.0.0.1/24"
+              - "2001:db8::1/64"
+          - name: "1.2"
+            type: "1000base-t"
+            ip_addresses:
+              - "10.0.0.2/24"
+        custom_fields:
+          vip_count: "45"
+          pool_members: "20"
+        tags:
+          - "production"
+          - "high-availability"
+        rack: "Rack-5"
+        position: 10
+        face: "front"
+        tenant: "Corp-IT"
+        primary_ip4: "10.0.0.1/24"
+        software_version: "15.1.0"
+        comments: "Primary load balancer for web services; monitor health checks weekly."
+      - name: "f5-lb-dr-02"
+        serial_number: "F5-SN-DEF789012"
+        vendor: "F5"
+        model: "BIG-IP i7000"
+        device_type: "Load Balancer"
+        location: "DataCenter-West"
+        status: "Active"
+        platform: "tmos"
+        interfaces:
+          - name: "mgmt"
+            type: "1000base-t"
+            ip_addresses:
+              - "192.168.1.100/24"
+          - name: "1.3"
+            type: "1000base-t"
+            ip_addresses: []
+        custom_fields:
+          irules_applied: "true"
+          ssl_offload: "enabled"
+        tags:
+          - "disaster-recovery"
+          - "f5"
+        rack: "Rack-3"
+        position: 15
+        face: "rear"
+        primary_ip4: "192.168.1.100/24"
+        software_version: "16.0.1"
+        comments: "Secondary DR site LB; sync configs from primary."
+      - name: "f5-lb-test-03"
+        serial_number: "F5-SN-GHI345678"
+        vendor: "F5"
+        model: "BIG-IP VE"
+        device_type: "Load Balancer"
+        location: "Lab-Site"
+        status: "Staged"
+        platform: "tmos"
+        interfaces:
+          - name: "1.1"
+            type: "virtual"
+            ip_addresses:
+              - "172.16.0.1/16"
+        custom_fields:
+          test_environment: "true"
+        tags:
+          - "testing"
+          - "virtual"
+        asset_tag: "ASSET-F5-003"
+        software_version: "17.0.0"
+        comments: "Virtual edition for testing new iRules; not in production."
+  roles:
+    - "nautobot_discovery"

@@ -1,0 +1,19 @@
+---
+# Validate required variables to ensure playbook can run
+- name: Validate required variables
+  ansible.builtin.fail:
+    msg: "Missing required variable {{ item }}"
+  when: lookup('vars', item, default=none) is none
+  loop:
+    - nautobot_url
+    - nautobot_token
+    - device_facts
+
+# Process each device in the device_facts list, looping over devices
+- name: Process each device
+  ansible.builtin.include_tasks: process_device.yml
+  loop: "{{ device_facts }}"
+  loop_control:
+    loop_var: device
+  ignore_errors: "{{ continue_on_error | bool }}"
+  # Allows playbook to continue on errors if continue_on_error is true
