@@ -33,11 +33,70 @@ nautobot_status: Default status for created objects (default: "Active").
 nautobot_validate_certs: Validate Nautobot API certificates (default: false).
 prefix_ids: Dictionary to store prefix IDs (default: {}).
 
-Required variables:
+Required Variables:
 
 nautobot_url: URL of the Nautobot API.
 nautobot_token: API token for Nautobot authentication.
-device_facts: List of device facts to process.
+device_facts: List of device facts to process (see below for structure).
+
+Device Facts Structure
+The device_facts variable is a list of dictionaries, each representing a device to be processed. Below is the structure with required and optional fields:
+Required Fields
+
+name: The name of the device (e.g., "switch01").
+serial_number: The device's serial number (e.g., "SN12345").
+vendor: The device manufacturer (e.g., "Cisco").
+model: The device model (e.g., "C9300").
+platform: The device platform (e.g., "ios").
+location: The device location/site (e.g., "Site1").
+device_type: The device role/type (e.g., "switch").
+
+Optional Fields
+
+tenant: The tenant associated with the device (e.g., "Tenant1"). If not found and create_missing_tenants is false, the task fails.
+software_version: The software version running on the device (e.g., "17.3.1"). If not found and create_missing_software_versions is false, the task fails.
+rack: The rack where the device is located (e.g., "Rack1"). If specified and not found, requires create_missing_racks to be true to create it.
+position: The rack position (e.g., 10). Required if rack is specified.
+face: The rack face (e.g., "front"). Required if rack is specified.
+tags: List of tags to apply to the device (e.g., ["core", "prod"]). Created if they don't exist.
+custom_fields: Dictionary of custom fields for the device (e.g., {"field1": "value1"}).
+asset_tag: The asset tag for the device (e.g., "ASSET123").
+status: The device status (e.g., "Active"). Defaults to nautobot_status if not provided.
+comments: Comments for the device (e.g., "Core switch for prod").
+interfaces: List of interfaces on the device. Each interface requires:
+name: Interface name (e.g., "GigabitEthernet0/1").
+type: Interface type (e.g., "1000base-t").
+ip_addresses: List of IP addresses (e.g., ["10.0.0.1/24"]).
+
+
+primary_ip4: The primary IPv4 address for the device (e.g., "10.0.0.1/24"). Must be assigned to an interface if specified.
+
+Example Device Facts
+device_facts:
+  - name: "device1"
+    serial_number: "SN12345"
+    vendor: "Cisco"
+    model: "C9300"
+    platform: "ios"
+    location: "Site1"
+    device_type: "switch"
+    tenant: "Tenant1"              # Optional
+    software_version: "17.3.1"     # Optional
+    rack: "Rack1"                  # Optional
+    position: 10                   # Optional, required if rack is specified
+    face: "front"                  # Optional, required if rack is specified
+    tags: ["core", "prod"]         # Optional
+    custom_fields:                 # Optional
+      field1: "value1"
+    asset_tag: "ASSET123"          # Optional
+    status: "Active"               # Optional
+    comments: "Core switch"        # Optional
+    interfaces:                    # Optional
+      - name: "GigabitEthernet0/1"
+        type: "1000base-t"
+        ip_addresses:
+          - "10.0.0.1/24"
+    primary_ip4: "10.0.0.1/24"     # Optional
 
 Dependencies
 
@@ -70,28 +129,7 @@ ansible-galaxy collection install networktocode.nautobot
 ansible-galaxy collection install ansible.netcommon
 
 
-Define Device Facts:Create a playbook or inventory with device_facts in the following format:
-device_facts:
-  - name: "device1"
-    serial_number: "SN12345"
-    vendor: "Cisco"
-    model: "C9300"
-    platform: "ios"
-    location: "Site1"
-    device_type: "switch"
-    tenant: "Tenant1"
-    software_version: "17.3.1"
-    rack: "Rack1"
-    position: 10
-    face: "front"
-    tags: ["core", "prod"]
-    interfaces:
-      - name: "GigabitEthernet0/1"
-        type: "1000base-t"
-        ip_addresses:
-          - "10.0.0.1/24"
-    primary_ip4: "10.0.0.1/24"
-
+Define Device Facts:Define device_facts in your playbook or inventory with the required and optional fields as shown above.
 
 Run the Role:Include the role in your playbook:
 - hosts: localhost
@@ -123,12 +161,16 @@ Example Playbook
             platform: "junos"
             location: "DataCenter1"
             device_type: "switch"
-            interfaces:
+            rack: "Rack1"                  # Optional
+            position: 10                   # Optional
+            face: "front"                  # Optional
+            tags: ["core", "prod"]         # Optional
+            interfaces:                    # Optional
               - name: "ge-0/0/0"
                 type: "1000base-t"
                 ip_addresses:
                   - "192.168.1.1/24"
-            primary_ip4: "192.168.1.1/24"
+            primary_ip4: "192.168.1.1/24"  # Optional
 
 Notes
 
