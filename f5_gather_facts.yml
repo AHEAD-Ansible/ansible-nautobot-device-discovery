@@ -1,0 +1,158 @@
+---
+- name: Gather facts from F5 BIG-IP
+  hosts: f5_bigip_group
+  gather_facts: no
+  collections:
+    - f5networks.f5_modules
+  tasks:
+    - name: Fetch management IP
+      bigip_command:
+        commands: "tmsh list sys management-ip"
+        provider:
+          server: "{{ ansible_host }}"
+          server_port: "{{ ansible_port }}"
+          user: "{{ ansible_user }}"
+          password: "{{ ansible_password }}"
+          validate_certs: "{{ ansible_httpapi_validate_certs }}"
+      delegate_to: localhost
+      register: mgmt_ip_result
+      ignore_errors: true
+
+    - name: Parse management IP
+      set_fact:
+        mgmt_ip: "{{ mgmt_ip_result.stdout | regex_search('management-ip (\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+)', '\\1') | first | default(ansible_host) }}"
+
+    - name: Collect BIG-IP information (interfaces, self-ips, system-info, vlans)
+      bigip_device_info:
+        gather_subset:
+          - interfaces
+          - self-ips
+          - system-info
+          - vlans
+        provider:
+          server: "{{ ansible_host }}"
+          server_port: "{{ ansible_port }}"
+          user: "{{ ansible_user }}"
+          password: "{{ ansible_password }}"
+          validate_certs: "{{ ansible_httpapi_validate_certs }}"
+      delegate_to: localhost
+      register: f5_facts
+
+    - name: Load interface mapping from JSON file
+      set_fact:
+        type_map: "{{ lookup('file', 'f5_interfaces.json') | from_json }}"
+
+    - name: Set shortcuts to f5_facts (for readability)
+      set_fact:
+        interfaces: "{{ f5_facts.interfaces | default([]) }}"
+        vlans: "{{ f5_facts.vlans | default([]) }}"
+        self_ips: "{{ f5_facts.self_ips | default([]) }}"
+        system_info: "{{ f5_facts.system_info | default({}) }}"
+
+    - name: Set serial number (from system-info or fallback to mgmt MAC)
+      set_fact:
+        serial_number: "{{ system_info.chassis_serial | default( (interfaces | selectattr('name', 'equalto', 'mgmt') | map(attribute='mac_address') | first | default('UNKNOWN') | replace(':', '') | upper) ) }}"
+
+    - name: Set model (from system-info or fallback)
+      set_fact:
+        model: "{{ system_info.marketing_name | default('BIG-IP') }}"
+
+    - name: Set software version (from system-info or fallback)
+      set_fact:
+        software_version: "{{ system_info.product_version | default('Unknown') }}"
+
+    - name: Set hostname (from system-info or fallback)
+      set_fact:
+        hostname: "{{ system_info.hostname | default(inventory_hostname) }}"
+
+    - name: Initialize interfaces dict (keyed by name for easy updates)
+      set_fact:
+        intf_dict: {}
+
+    - name: Add physical interfaces to dict
+      set_fact:
+        intf_dict: "{{ intf_dict | combine({item.name: {'type': type_map[item.active_media_type | default('other')] | default('other'), 'ip_addresses': [] }}) }}"
+      loop: "{{ interfaces }}"
+
+    - name: Add management IP to mgmt interface
+      set_fact:
+        intf_dict: "{{ intf_dict | combine({'mgmt': intf_dict['mgmt'] | default({'type': type_map['100TX-FD'] | default('100base-tx'), 'ip_addresses': []}) | combine({'ip_addresses': intf_dict['mgmt'].ip_addresses | default([]) + [mgmt_ip] })}) }}"
+      when: "'mgmt' in intf_dict"
+
+    - name: Add self-ips to associated physical interfaces
+      set_fact:
+        intf_dict: "{{ intf_dict | combine({phys_int: intf_dict[phys_int] | combine({'ip_addresses': intf_dict[phys_int].ip_addresses + [item.address ~ '/' ~ item.netmask_cidr] })}) }}"
+      loop: "{{ self_ips }}"
+      when: phys_int != ''
+      vars:
+        vlan_name: "{{ item.vlan.split('/')[-1] }}"
+        vlan_obj: "{{ vlans | selectattr('name', 'equalto', vlan_name) | first | default({}) }}"
+        phys_int: "{{ (vlan_obj.interfaces | default([]) | first | default({})).name | default('') }}"
+      ignore_errors: true
+
+    - name: Build interfaces list (add 'name' key to each dict)
+      set_fact:
+        interfaces_list: "{{ interfaces_list | default([]) + [{'name': key, 'type': intf_dict[key].type, 'ip_addresses': intf_dict[key].ip_addresses}] }}"
+      loop: "{{ intf_dict.keys() | list }}"
+      loop_control:
+        loop_var: key
+
+- name: Construct device_facts and upload to Nautobot
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  pre_tasks:
+    - name: Append device with rack
+      set_fact:
+        device_facts: "{{ device_facts | default([]) + [ the_dict ] }}"
+      loop: "{{ groups['f5_bigip_group'] }}"
+      vars:
+        current_host: "{{ item }}"
+        the_dict:
+          name: "{{ hostvars[current_host].hostname }}"
+          serial_number: "{{ hostvars[current_host].serial_number }}"
+          vendor: "F5"
+          model: "{{ hostvars[current_host].model }}"
+          device_type: "Load Balancer"
+          location: "{{ hostvars[current_host].location | default(omit) }}"
+          platform: "tmos"
+          interfaces: "{{ hostvars[current_host].interfaces_list }}"
+          primary_ip4: "{{ hostvars[current_host].mgmt_ip }}"
+          tags: "{{ hostvars[current_host].host_tags | default(omit) }}"
+          rack: "{{ hostvars[current_host].rack | default(omit) }}"
+          position: "{{ hostvars[current_host].position | default(omit) }}"
+          face: "{{ hostvars[current_host].face | default(omit) }}"
+          tenant: "{{ hostvars[current_host].tenant | default(omit) }}"
+          software_version: "{{ hostvars[current_host].software_version }}"
+          comments: "{{ hostvars[current_host].comments | default(omit) }}"
+
+      when: hostvars[item].rack is defined
+
+    - name: Append device without rack
+      set_fact:
+        device_facts: "{{ device_facts | default([]) + [ the_dict ] }}"
+      loop: "{{ groups['f5_bigip_group'] }}"
+      vars:
+        current_host: "{{ item }}"
+        the_dict:
+          name: "{{ hostvars[current_host].hostname }}"
+          serial_number: "{{ hostvars[current_host].serial_number }}"
+          vendor: "F5"
+          model: "{{ hostvars[current_host].model }}"
+          device_type: "Load Balancer"
+          location: "{{ hostvars[current_host].location | default(omit) }}"
+          platform: "tmos"
+          interfaces: "{{ hostvars[current_host].interfaces_list }}"
+          primary_ip4: "{{ hostvars[current_host].mgmt_ip }}"
+          tags: "{{ hostvars[current_host].host_tags | default(omit) }}"
+          tenant: "{{ hostvars[current_host].tenant | default(omit) }}"
+          software_version: "{{ hostvars[current_host].software_version }}"
+          comments: "{{ hostvars[current_host].comments | default(omit) }}"
+      when: hostvars[item].rack is not defined
+
+    - name: Debug constructed device_facts
+      debug:
+        var: device_facts
+
+  roles:
+    - role: nautobot_discovery

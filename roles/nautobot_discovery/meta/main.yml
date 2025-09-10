@@ -1,6 +1,6 @@
 ---
 galaxy_info:
-  author: grok
+  author: Brian Nelson
   description: Upload device facts to Nautobot
   license: MIT
 
