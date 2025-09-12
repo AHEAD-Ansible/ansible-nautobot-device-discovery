@@ -1,0 +1,24 @@
+---
+- name: Lookup tenant
+  ansible.builtin.set_fact:
+    tenant_lookup: "{{ lookup('networktocode.nautobot.lookup', 'tenants', api_filter='name=' ~ tenant_name, api_endpoint=nautobot_url, token=nautobot_token, raw_data=True, num_retries=3) | default({}) }}"
+
+- name: Normalize tenant lookup
+  ansible.builtin.set_fact:
+    tenant_list: "{{ [tenant_lookup] if tenant_lookup is mapping else tenant_lookup if tenant_lookup is iterable and not (tenant_lookup is string) else [] }}"
+
+- name: Create tenant if not exists
+  networktocode.nautobot.tenant:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ tenant_name }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - name
+  register: tenant_create
+  when: tenant_list | length == 0 and create_missing_tenants | bool
+
+- name: Set tenant ID
+  ansible.builtin.set_fact:
+    tenant_ids: "{{ tenant_ids | default({}) | combine({tenant_name: tenant_create.tenant.id if tenant_create.changed else tenant_list[0].id}) }}"

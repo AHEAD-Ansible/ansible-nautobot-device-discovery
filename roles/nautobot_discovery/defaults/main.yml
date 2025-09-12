@@ -1,5 +1,6 @@
 ---
 create_missing_locations: true
+default_location_type: "Datacenter"
 create_missing_racks: true
 create_missing_tenants: true
 create_missing_software_versions: true
@@ -10,3 +11,6 @@ nautobot_namespace: "Global"
 nautobot_status: "Active"
 nautobot_validate_certs: false
 prefix_ids: {}
+vrf_ids: {}
+tenant_ids: {}
+vlan_ids: {}

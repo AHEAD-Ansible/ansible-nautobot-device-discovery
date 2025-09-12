@@ -1,0 +1,77 @@
+---
+- name: Parse destination
+  include_tasks: parse_ip.yml
+  vars:
+    ip: "{{ route.destination }}"
+
+- name: Process destination prefix
+  include_tasks: process_prefix.yml
+  vars:
+    ip_prefix: "{{ ip_prefix }}"
+    vrf: "{{ route.vrf | default(omit) }}"
+    tenant: "{{ route.tenant | default(omit) }}"
+
+- name: Set destination prefix ID
+  set_fact:
+    destination_prefix_id: "{{ parent_prefix_id }}"
+
+- name: Set next hop address as /32
+  set_fact:
+    next_hop_address: "{{ route.next_hop ~ '/32' }}"
+
+- name: Process next hop IP
+  include_tasks: process_ip.yml
+  vars:
+    ip: "{{ next_hop_address }}"
+    vrf: "{{ route.vrf | default(omit) }}"
+    tenant: "{{ route.tenant | default(omit) }}"
+    # No interface_id, skips assignment
+
+- name: Set next hop IP ID
+  set_fact:
+    next_hop_ip_id: "{{ ip_obj.id }}"
+
+- name: Set route filter query
+  set_fact:
+    route_filter: "device_id={{ device_id }}{% if route.vrf %} &vrf={{ vrf_ids[route.vrf] }}{% endif %} &destination__prefix={{ ip_prefix }} &destination__namespace={{ nautobot_namespace }}"
+
+- name: Lookup static route
+  ansible.builtin.set_fact:
+    route_lookup: "{{ lookup('networktocode.nautobot.lookup', 'static-routes', api_filter=route_filter, api_endpoint=nautobot_url, token=nautobot_token, raw_data=True, num_retries=3) | default({}) }}"
+
+- name: Normalize route lookup
+  ansible.builtin.set_fact:
+    route_list: "{{ [route_lookup] if route_lookup is mapping else route_lookup if route_lookup is iterable and not (route_lookup is string) else [] }}"
+
+- name: Check for conflict
+  set_fact:
+    route_conflict: "{{ route_list | length > 0 }}"
+
+- name: Fail on conflict if not overwrite
+  fail:
+    msg: "Static route for {{ route.destination }} exists and allow_ip_overwrite is false"
+  when: route_conflict and not allow_ip_overwrite
+
+- name: Create static route if not exists
+  ansible.builtin.uri:
+    url: "{{ nautobot_url }}/api/ipam/static-routes/"
+    headers:
+      Authorization: "Token {{ nautobot_token }}"
+      Content-Type: "application/json"
+    method: POST
+    body_format: json
+    body: |
+      {
+        "device": "{{ device_id }}",
+        "vrf": "{{ vrf_ids[route.vrf] | default(null) }}",
+        "destination": "{{ destination_prefix_id }}",
+        "next_hops": ["{{ next_hop_ip_id }}"],
+        "tenant": "{{ tenant_ids[route.tenant] | default(null) }}",
+        "status": "{{ nautobot_status }}",
+        "metric": "{{ route.metric | default(1) }}",
+        "comments": "{{ route.description | default('') }}"
+      }
+    validate_certs: "{{ nautobot_validate_certs }}"
+    status_code: 201, 200
+  when: not route_conflict or allow_ip_overwrite
+  register: route_api_result

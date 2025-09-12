@@ -22,13 +22,15 @@
       set_fact:
         mgmt_ip: "{{ mgmt_ip_result.stdout | regex_search('management-ip (\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+)', '\\1') | first | default(ansible_host) }}"
 
-    - name: Collect BIG-IP information (interfaces, self-ips, system-info, vlans)
+    - name: Collect BIG-IP information (interfaces, self-ips, system-info, vlans, virtual-servers)
       bigip_device_info:
         gather_subset:
           - interfaces
           - self-ips
           - system-info
           - vlans
+          - virtual-servers
+          - route-domains
         provider:
           server: "{{ ansible_host }}"
           server_port: "{{ ansible_port }}"
@@ -48,6 +50,7 @@
         vlans: "{{ f5_facts.vlans | default([]) }}"
         self_ips: "{{ f5_facts.self_ips | default([]) }}"
         system_info: "{{ f5_facts.system_info | default({}) }}"
+        virtual_servers: "{{ f5_facts.virtual_servers | default([]) }}"
 
     - name: Set serial number (from system-info or fallback to mgmt MAC)
       set_fact:
@@ -81,7 +84,11 @@
 
     - name: Add self-ips to associated physical interfaces
       set_fact:
-        intf_dict: "{{ intf_dict | combine({phys_int: intf_dict[phys_int] | combine({'ip_addresses': intf_dict[phys_int].ip_addresses + [item.address ~ '/' ~ item.netmask_cidr] })}) }}"
+        intf_dict: "{{ intf_dict | combine({phys_int: intf_dict[phys_int] | combine({
+            'ip_addresses': intf_dict[phys_int].ip_addresses + [item.address ~ '/' ~ item.netmask_cidr] if item.address != mgmt_ip.split('/')[0] else intf_dict[phys_int].ip_addresses,
+            'vlan': vlan_name,
+            'vrf': (ansible_net_route_domains | selectattr('vlans', 'contains', item.vlan) | first | default({})).name | default('0')
+        })}) }}"
       loop: "{{ self_ips }}"
       when: phys_int != ''
       vars:
@@ -90,9 +97,31 @@
         phys_int: "{{ (vlan_obj.interfaces | default([]) | first | default({})).name | default('') }}"
       ignore_errors: true
 
+    - name: Add VIPs as virtual interfaces
+      set_fact:
+        intf_dict: "{{ intf_dict | combine({vs_name: {
+            'type': 'virtual',
+            'ip_addresses': intf_dict[vs_name].ip_addresses | default([]) + [vip_ip ~ '/32'],
+            'vlan': 'internal',
+            'vrf': (ansible_net_route_domains | selectattr('vlans', 'contains', '/Common/internal') | first | default({})).name | default('0')
+        }}) }}"
+      loop: "{{ virtual_servers }}"
+      vars:
+        full_dest: "{{ item.destination.split('/')[-1].split(':')[0] }}"
+        vip_ip: "{{ full_dest | regex_replace('%.*', '') | regex_replace('[^0-9.]', '') | trim }}"
+        vs_name: "{{ 'vs_' ~ item.name.split('/')[-1] }}"
+      when: vip_ip is match('\\d+\\.\\d+\\.\\d+\\.\\d+')
+      ignore_errors: true
+
     - name: Build interfaces list (add 'name' key to each dict)
       set_fact:
-        interfaces_list: "{{ interfaces_list | default([]) + [{'name': key, 'type': intf_dict[key].type, 'ip_addresses': intf_dict[key].ip_addresses}] }}"
+        interfaces_list: "{{ interfaces_list | default([]) + [{
+            'name': key,
+            'type': intf_dict[key].type,
+            'ip_addresses': intf_dict[key].ip_addresses,
+            'vlan': intf_dict[key].vlan | default(omit),
+            'vrf': intf_dict[key].vrf | default(omit)
+        }] }}"
       loop: "{{ intf_dict.keys() | list }}"
       loop_control:
         loop_var: key
@@ -102,57 +131,48 @@
   connection: local
   gather_facts: false
   pre_tasks:
-    - name: Append device with rack
-      set_fact:
-        device_facts: "{{ device_facts | default([]) + [ the_dict ] }}"
-      loop: "{{ groups['f5_bigip_group'] }}"
-      vars:
-        current_host: "{{ item }}"
-        the_dict:
-          name: "{{ hostvars[current_host].hostname }}"
-          serial_number: "{{ hostvars[current_host].serial_number }}"
-          vendor: "F5"
-          model: "{{ hostvars[current_host].model }}"
-          device_type: "Load Balancer"
-          location: "{{ hostvars[current_host].location | default(omit) }}"
-          platform: "tmos"
-          interfaces: "{{ hostvars[current_host].interfaces_list }}"
-          primary_ip4: "{{ hostvars[current_host].mgmt_ip }}"
-          tags: "{{ hostvars[current_host].host_tags | default(omit) }}"
-          rack: "{{ hostvars[current_host].rack | default(omit) }}"
-          position: "{{ hostvars[current_host].position | default(omit) }}"
-          face: "{{ hostvars[current_host].face | default(omit) }}"
-          tenant: "{{ hostvars[current_host].tenant | default(omit) }}"
-          software_version: "{{ hostvars[current_host].software_version }}"
-          comments: "{{ hostvars[current_host].comments | default(omit) }}"
+    - name: Debug inventory group
+      debug:
+        msg: "Inventory group f5_bigip_group: {{ groups['f5_bigip_group'] }}"
+      run_once: true
 
-      when: hostvars[item].rack is defined
-
-    - name: Append device without rack
+    - name: Initialize device_facts
       set_fact:
-        device_facts: "{{ device_facts | default([]) + [ the_dict ] }}"
+        device_facts: []
+      run_once: true
+
+    - name: Construct device_facts for each F5 host
+      set_fact:
+        device_facts: "{{ device_facts + [{
+            'name': hostvars[f5_host].hostname | default(f5_host),
+            'serial_number': hostvars[f5_host].serial_number | default('UNKNOWN'),
+            'vendor': 'F5',
+            'model': hostvars[f5_host].model | default('BIG-IP'),
+            'device_type': 'Load Balancer',
+            'location': hostvars[f5_host].location | default('DataCenter-East'),
+            'platform': 'tmos',
+            'interfaces': hostvars[f5_host].interfaces_list | default([]),
+            'primary_ip4': hostvars[f5_host].mgmt_ip | default(''),
+            'software_version': hostvars[f5_host].software_version | default('Unknown'),
+            'vrfs': hostvars[f5_host].ansible_net_route_domains | default([]) | map(attribute='name') | list,
+            'vlans': hostvars[f5_host].ansible_net_vlans | default([]) | map(attribute='name') | list,
+            'intf_dict': hostvars[f5_host].intf_dict | default({}),
+            'rack': hostvars[f5_host].rack | default(omit),
+            'position': hostvars[f5_host].position | default(omit),
+            'face': hostvars[f5_host].face | default(omit),
+            'tenant': hostvars[f5_host].tenant | default(omit),
+            'tags': hostvars[f5_host].host_tags | default(omit),
+            'comments': hostvars[f5_host].comments | default(omit)
+        }] }}"
       loop: "{{ groups['f5_bigip_group'] }}"
-      vars:
-        current_host: "{{ item }}"
-        the_dict:
-          name: "{{ hostvars[current_host].hostname }}"
-          serial_number: "{{ hostvars[current_host].serial_number }}"
-          vendor: "F5"
-          model: "{{ hostvars[current_host].model }}"
-          device_type: "Load Balancer"
-          location: "{{ hostvars[current_host].location | default(omit) }}"
-          platform: "tmos"
-          interfaces: "{{ hostvars[current_host].interfaces_list }}"
-          primary_ip4: "{{ hostvars[current_host].mgmt_ip }}"
-          tags: "{{ hostvars[current_host].host_tags | default(omit) }}"
-          tenant: "{{ hostvars[current_host].tenant | default(omit) }}"
-          software_version: "{{ hostvars[current_host].software_version }}"
-          comments: "{{ hostvars[current_host].comments | default(omit) }}"
-      when: hostvars[item].rack is not defined
+      loop_control:
+        loop_var: f5_host
+      when: hostvars[f5_host] is defined
 
     - name: Debug constructed device_facts
       debug:
         var: device_facts
+      run_once: true
 
   roles:
     - role: nautobot_discovery

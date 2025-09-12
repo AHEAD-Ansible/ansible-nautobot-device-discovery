@@ -3,11 +3,15 @@
   networktocode.nautobot.device_interface:
     url: "{{ nautobot_url }}"
     token: "{{ nautobot_token }}"
+    device: "{{ device_id }}"
     name: "{{ intf.name }}"
-    device: "{{ device.name }}"
     type: "{{ intf.type }}"
     enabled: true
     status: "{{ nautobot_status }}"
+    mode: >-
+      {%- if intf.vlan is defined and intf.vlan in vlan_ids -%}access{%- elif intf.tagged_vlans is defined and intf.tagged_vlans | length > 0 -%}tagged{%- else -%}{{ omit }}{%- endif -%}
+    untagged_vlan: "{{ vlan_ids[intf.vlan] if intf.vlan is defined and intf.vlan in vlan_ids else omit }}"
+    vrf: "{{ vrf_ids[intf.vrf] if intf.vrf is defined and intf.vrf in vrf_ids else omit }}"
     state: present
     validate_certs: "{{ nautobot_validate_certs }}"
     query_params:
@@ -15,17 +19,12 @@
       - name
   register: intf_result
 
-- name: Process prefix for each IP
-  include_tasks: process_prefix.yml
-  loop: "{{ intf.ip_addresses | default([]) }}"
-  loop_control:
-    loop_var: ip
-
 - name: Process each IP address
-  include_tasks: process_ip.yml
-  loop: "{{ intf.ip_addresses | default([]) }}"
+  ansible.builtin.include_tasks: process_ip.yml
+  loop: "{{ intf.ip_addresses }}"
   loop_control:
     loop_var: ip
   vars:
     interface_id: "{{ intf_result.interface.id }}"
-    device_id: "{{ device_id }}"
+    vrf: "{{ intf.vrf | default(omit) }}"
+    tenant: "{{ device.tenant | default(omit) }}"
