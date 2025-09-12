@@ -1,12 +1,9 @@
 ---
-- name: Parse IP address and prefix
-  ansible.builtin.include_tasks: parse_ip.yml
-
-- name: Check if exact prefix exists
+- name: Include lookup and normalize tasks
   include_tasks: lookup_and_normalize.yml
   vars:
     endpoint: 'prefixes'
-    filter_query: 'prefix={{ ip_prefix }} namespace={{ nautobot_namespace }}'
+    filter_query: 'prefix={{ ip_prefix }} namespace={{ nautobot_namespace }}{% if prefix_vrf is defined and prefix_vrf in vrf_ids %} vrfs={{ vrf_ids[prefix_vrf] }}{% endif %}'
     var_name: exact_prefix
     list_var: exact_list
 
@@ -16,12 +13,14 @@
     token: "{{ nautobot_token }}"
     prefix: "{{ ip_prefix }}"
     namespace: "{{ nautobot_namespace }}"
+    vrf: "{{ vrf_ids[prefix_vrf] if prefix_vrf is defined and prefix_vrf in vrf_ids else omit }}"  # Add VRF to prefix
     status: "{{ nautobot_status }}"
     state: present
     validate_certs: "{{ nautobot_validate_certs }}"
     query_params:
       - prefix
       - namespace
+      - vrf  # Valid for prefix list queries
   register: prefix_create
   when: exact_list | length == 0
 
@@ -31,5 +30,5 @@
 
 - name: Store prefix ID in dict
   ansible.builtin.set_fact:
-    prefix_ids: "{{ prefix_ids | combine({ip_prefix: parent_prefix_id}) }}"
+    prefix_ids: "{{ prefix_ids | combine({(prefix_vrf|default('')) ~ ':' ~ ip_prefix: parent_prefix_id}) if prefix_vrf is defined else prefix_ids | combine({ip_prefix: parent_prefix_id}) }}"
   when: parent_prefix_id is not none and parent_prefix_id != omit

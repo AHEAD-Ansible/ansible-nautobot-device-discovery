@@ -1,0 +1,35 @@
+---
+- name: Lookup VRF
+  ansible.builtin.set_fact:
+    vrf_lookup: "{{ lookup('networktocode.nautobot.lookup', 'vrfs', api_filter='name=' ~ vrf_name, api_endpoint=nautobot_url, token=nautobot_token, raw_data=True, num_retries=3) | default({}) }}"
+
+- name: Normalize VRF lookup
+  ansible.builtin.set_fact:
+    vrf_list: "{{ [vrf_lookup] if vrf_lookup is mapping else vrf_lookup if vrf_lookup is iterable and not (vrf_lookup is string) else [] }}"
+
+- name: Create VRF if not exists
+  networktocode.nautobot.vrf:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ vrf_name }}"
+    rd: "{{ vrf_name }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - name
+      - rd
+  register: vrf_create
+  when: vrf_list | length == 0
+
+- name: Ensure VRF is assigned to device
+  networktocode.nautobot.vrf_device_assignment:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    vrf: "{{ vrf_create.vrf.id if vrf_create.changed else vrf_list[0].id }}"
+    device: "{{ device_id }}"
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+
+- name: Set VRF ID
+  ansible.builtin.set_fact:
+    vrf_ids: "{{ vrf_ids | default({}) | combine({vrf_name: vrf_create.vrf.id if vrf_create.changed else vrf_list[0].id}) }}"
