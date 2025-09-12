@@ -9,15 +9,7 @@
   ansible.builtin.include_tasks: lookup_and_normalize.yml
   vars:
     endpoint: 'ip-addresses'
-    filter_query: >-
-      address={{ ip }}
-      namespace={{ nautobot_namespace }}
-      {%- if vrf is defined and vrf != '0' and vrf in vrf_ids -%}
-      vrfs={{ vrf_ids[vrf] }}
-      {%- endif -%}
-      {%- if tenant is defined and tenant in tenant_ids -%}
-      tenant={{ tenant_ids[tenant] }}
-      {%- endif -%}
+    filter_query: "address={{ ip }} namespace={{ nautobot_namespace }}{% if vrf is defined and vrf != '0' and vrf in vrf_ids %} vrfs={{ vrf_ids[vrf] }}{% endif %}{% if tenant is defined and tenant in tenant_ids %} tenant={{ tenant_ids[tenant] }}{% endif %}"
     additional_filter: ' depth=1'
     var_name: ip_lookup
     list_var: ip_list
@@ -98,9 +90,9 @@
     query_params:
       - namespace
       - address
-    ignore_errors: true  # Safeguard for duplicates on re-run
   register: ip_create
   when: not ip_exists
+  ignore_errors: "{{ continue_on_error | bool }}"  # Optional: Task-level ignore if needed
 
 - name: Set IP object
   ansible.builtin.set_fact:

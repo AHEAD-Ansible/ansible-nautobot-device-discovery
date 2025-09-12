@@ -145,18 +145,17 @@
             required_content_types: ["dcim.device", "dcim.rack", "ipam.vlan"]
 
         - name: Get location type details if exists
-          networktocode.nautobot.location_type:
-            url: "{{ nautobot_url }}"
-            token: "{{ nautobot_token }}"
-            id: "{{ location_type_list[0].id if location_type_list | length > 0 else omit }}"
-            state: query
-            validate_certs: "{{ nautobot_validate_certs }}"
-          register: existing_location_type
+          include_tasks: lookup_and_normalize.yml
+          vars:
+            endpoint: 'location-types'
+            filter_query: 'id={{ location_type_list[0].id }}'
+            var_name: location_type_details
+            list_var: location_type_details_list
           when: location_type_list | length > 0
 
         - name: Extract current content types
           ansible.builtin.set_fact:
-            current_content_types: "{{ existing_location_type.location_type.content_types | default([]) }}"
+            current_content_types: "{{ location_type_details_list[0].content_types | default([]) }}"
           when: location_type_list | length > 0
 
         - name: Initialize current_content_types for new types
@@ -166,17 +165,17 @@
 
         - name: Check if content types need update
           ansible.builtin.set_fact:
-            needs_update: "{{ required_content_types | difference(current_content_types) | length > 0 }}"
+            needs_update: "{{ (required_content_types | sort) != (current_content_types | sort) }}"
 
         - name: Update location type with required content types if needed
           networktocode.nautobot.location_type:
             url: "{{ nautobot_url }}"
             token: "{{ nautobot_token }}"
             id: "{{ location_type_list[0].id if location_type_list | length > 0 else omit }}"
-            content_types: "{{ current_content_types + (required_content_types | difference(current_content_types)) }}"
+            name: "{{ default_location_type }}"
+            content_types: "{{ required_content_types }}"
             state: present
             validate_certs: "{{ nautobot_validate_certs }}"
-          register: location_type_update
           when: location_type_list | length > 0 and needs_update | bool
 
         - name: Create location type if not exists
@@ -184,25 +183,24 @@
             url: "{{ nautobot_url }}"
             token: "{{ nautobot_token }}"
             name: "{{ default_location_type }}"
-            content_types: "{{ required_content_types }}"  # Use required content types
+            content_types: "{{ required_content_types }}"
             state: present
             validate_certs: "{{ nautobot_validate_certs }}"
             query_params:
               - name
           register: location_type_create
-          when: location_type_list | length == 0 and create_missing_locations | bool  # Tie to your existing var for consistency
+          when: location_type_list | length == 0 and create_missing_locations | bool
 
-    - name: Set location type ID for use in location creation
-      ansible.builtin.set_fact:
-        location_type_id: "{{ location_type_update.location_type.id if (location_type_update is defined and location_type_update.changed) else location_type_create.location_type.id if (location_type_create is defined) else location_type_list[0].id if location_type_list | length > 0 else omit }}"
+        - name: Set location type ID for use in location creation
+          ansible.builtin.set_fact:
+            location_type_id: "{{ location_type_update.location_type.id if (location_type_update is defined and location_type_update.changed) else location_type_create.location_type.id if (location_type_create is defined and location_type_create.changed) else location_type_list[0].id if location_type_list | length > 0 else omit }}"
 
-    # Create location if not found and allowed
     - name: Create location if not found and allowed
       networktocode.nautobot.location:
         url: "{{ nautobot_url }}"
         token: "{{ nautobot_token }}"
         name: "{{ device.location }}"
-        location_type: "{{ location_type_id }}"  # Use ID here instead of hardcoded name
+        location_type: "{{ location_type_id }}"
         status: "{{ nautobot_status }}"
         state: present
         validate_certs: "{{ nautobot_validate_certs }}"
@@ -211,12 +209,10 @@
       register: location_create
       when: location_list | length == 0 and create_missing_locations | bool
 
-    # Set location fact (from creation or lookup)
     - name: Set location fact
       ansible.builtin.set_fact:
         location: "{{ location_create.location if location_create.changed else location_list[0] if location_list | length > 0 else {} }}"
 
-    # Fail if location not found and creation not allowed
     - name: Fail if location not found and creation not allowed
       ansible.builtin.fail:
         msg: "Location {{ device.location }} not found and create_missing_locations is false"
