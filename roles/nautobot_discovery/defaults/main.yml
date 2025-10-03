@@ -1,16 +1,45 @@
 ---
-create_missing_locations: true
-default_location_type: "Datacenter"
-create_missing_racks: true
-create_missing_tenants: true
-create_missing_software_versions: true
-continue_on_error: true
-allow_ip_overwrite: true
-use_next_available_on_conflict: false
-nautobot_namespace: "Global"
-nautobot_status: "Active"
-nautobot_validate_certs: false
-prefix_ids: {}
-vrf_ids: {}
-tenant_ids: {}
-vlan_ids: {}
+# Whether to create missing locations in Nautobot if not found
+nautobot_discovery_create_missing_locations: true
+
+# Default location type to use when creating locations (e.g., 'Datacenter', 'Campus')
+nautobot_discovery_default_location_type: "Datacenter"
+
+# Whether to create missing racks in Nautobot if not found
+nautobot_discovery_create_missing_racks: true
+
+# Whether to create missing tenants in Nautobot if not found
+nautobot_discovery_create_missing_tenants: true
+
+# Whether to create missing software versions in Nautobot if not found
+nautobot_discovery_create_missing_software_versions: true
+
+# Continue processing devices/interfaces on error (set to false to fail fast)
+nautobot_discovery_continue_on_error: true
+
+# Allow overwriting existing IP assignments in Nautobot (set to false for safety)
+nautobot_discovery_allow_ip_overwrite: false
+
+# Use the next available IP from the parent prefix if a conflict occurs
+nautobot_discovery_use_next_available_on_conflict: false
+
+# Default namespace for IP addresses and prefixes in Nautobot
+nautobot_discovery_namespace: "Global"
+
+# Default status for created objects in Nautobot (e.g., 'Active', 'Planned')
+nautobot_discovery_status: "Active"
+
+# Whether to validate SSL certificates for Nautobot API calls (set to true for production)
+nautobot_discovery_validate_certs: false
+
+# Cache for prefix IDs to avoid repeated lookups (initialized as empty)
+nautobot_discovery_prefix_ids: {}
+
+# Cache for VRF IDs to avoid repeated lookups (initialized as empty)
+nautobot_discovery_vrf_ids: {}
+
+# Cache for tenant IDs to avoid repeated lookups (initialized as empty)
+nautobot_discovery_tenant_ids: {}
+
+# Cache for VLAN IDs to avoid repeated lookups (initialized as empty)
+nautobot_discovery_vlan_ids: {}

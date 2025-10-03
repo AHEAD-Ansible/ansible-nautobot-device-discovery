@@ -1,30 +1,44 @@
 ---
+# Initialize updated interface dictionary
+- name: Initialize updated interface dictionary
+  ansible.builtin.set_fact:
+    updated_intf_dict: {}
+
+# Map interface types
+- name: Map interface types
+  include_tasks: _map_one_interface.yml
+  loop: "{{ device.intf_dict.keys() | list }}"
+  loop_control:
+    loop_var: intf_key
+
+# Ensure interface exists
 - name: Ensure interface exists
   networktocode.nautobot.device_interface:
     url: "{{ nautobot_url }}"
     token: "{{ nautobot_token }}"
     device: "{{ device_id }}"
     name: "{{ intf.name }}"
-    type: "{{ intf.type }}"
+    type: "{{ updated_intf_dict[intf.name].nautobot_type | default('other') }}"
     enabled: true
-    status: "{{ nautobot_status }}"
-    mode: >-
-      {%- if intf.vlan is defined and intf.vlan in vlan_ids -%}access{%- elif intf.tagged_vlans is defined and intf.tagged_vlans | length > 0 -%}tagged{%- else -%}{{ omit }}{%- endif -%}
-    untagged_vlan: "{{ vlan_ids[intf.vlan] if intf.vlan is defined and intf.vlan in vlan_ids else omit }}"
-    vrf: "{{ vrf_ids[intf.vrf] if intf.vrf is defined and intf.vrf in vrf_ids else omit }}"
+    vrf: "{{ nautobot_discovery_vrf_ids[intf.vrf] if intf.vrf is defined and intf.vrf in nautobot_discovery_vrf_ids else omit }}"
+    status: "{{ nautobot_discovery_status }}"
+    mode: "{{ 'access' if intf.vlan is defined and intf.platform_interface_type != 'virtual' else omit }}"
+    untagged_vlan: "{{ nautobot_discovery_vlan_ids[intf.vlan] if intf.vlan is defined and intf.platform_interface_type != 'virtual' and intf.vlan in nautobot_discovery_vlan_ids else omit }}"
     state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
+    validate_certs: "{{ nautobot_discovery_validate_certs }}"
     query_params:
       - device
       - name
   register: intf_result
 
-- name: Process each IP address
-  ansible.builtin.include_tasks: process_ip.yml
-  loop: "{{ intf.ip_addresses }}"
+# Process IP addresses
+- name: Process IP addresses
+  include_tasks: interface_ip_assignment.yml
+  loop: "{{ intf.ip_addresses | default([]) }}"
   loop_control:
     loop_var: ip
   vars:
     interface_id: "{{ intf_result.interface.id }}"
-    vrf: "{{ intf.vrf | default(omit) }}"
     tenant: "{{ device.tenant | default(omit) }}"
+    vrf: "{{ intf.vrf | default(omit) }}"
+  when: intf.ip_addresses is defined and intf.ip_addresses | length > 0

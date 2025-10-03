@@ -40,10 +40,6 @@
       delegate_to: localhost
       register: f5_facts
 
-    - name: Load interface mapping from JSON file
-      set_fact:
-        type_map: "{{ lookup('file', 'f5_interfaces.json') | from_json }}"
-
     - name: Set shortcuts to f5_facts (for readability)
       set_fact:
         interfaces: "{{ f5_facts.interfaces | default([]) }}"
@@ -74,12 +70,12 @@
 
     - name: Add physical interfaces to dict
       set_fact:
-        intf_dict: "{{ intf_dict | combine({item.name: {'type': type_map[item.active_media_type | default('other')] | default('other'), 'ip_addresses': [] }}) }}"
+        intf_dict: "{{ intf_dict | combine({item.name: {'platform_interface_type': item.active_media_type | default('other'), 'ip_addresses': [] }}) }}"
       loop: "{{ interfaces }}"
 
     - name: Add management IP to mgmt interface
       set_fact:
-        intf_dict: "{{ intf_dict | combine({'mgmt': intf_dict['mgmt'] | default({'type': type_map['100TX-FD'] | default('100base-tx'), 'ip_addresses': []}) | combine({'ip_addresses': intf_dict['mgmt'].ip_addresses | default([]) + [mgmt_ip] })}) }}"
+        intf_dict: "{{ intf_dict | combine({'mgmt': intf_dict['mgmt'] | default({'platform_interface_type': '100TX-FD', 'ip_addresses': []}) | combine({'ip_addresses': intf_dict['mgmt'].ip_addresses | default([]) + [mgmt_ip] })}) }}"
       when: "'mgmt' in intf_dict"
 
     - name: Add self-ips to associated physical interfaces
@@ -100,7 +96,7 @@
     - name: Add VIPs as virtual interfaces
       set_fact:
         intf_dict: "{{ intf_dict | combine({vs_name: {
-            'type': 'virtual',
+            'platform_interface_type': 'virtual',
             'ip_addresses': intf_dict[vs_name].ip_addresses | default([]) + [vip_ip ~ '/32'],
             'vlan': 'internal',
             'vrf': (ansible_net_route_domains | selectattr('vlans', 'contains', '/Common/internal') | first | default({})).name | default('0')
@@ -113,11 +109,11 @@
       when: vip_ip is match('\\d+\\.\\d+\\.\\d+\\.\\d+')
       ignore_errors: true
 
-    - name: Build interfaces list (add 'name' key to each dict)
+    - name: Build interfaces list
       set_fact:
         interfaces_list: "{{ interfaces_list | default([]) + [{
             'name': key,
-            'type': intf_dict[key].type,
+            'platform_interface_type': intf_dict[key].platform_interface_type,
             'ip_addresses': intf_dict[key].ip_addresses,
             'vlan': intf_dict[key].vlan | default(omit),
             'vrf': intf_dict[key].vrf | default(omit)
@@ -131,14 +127,27 @@
   connection: local
   gather_facts: false
   pre_tasks:
+    - name: Check if f5_bigip_group exists
+      set_fact:
+        f5_group_exists: "{{ groups['f5_bigip_group'] is defined and groups['f5_bigip_group'] | length > 0 }}"
+      run_once: true
+
     - name: Debug inventory group
       debug:
-        msg: "Inventory group f5_bigip_group: {{ groups['f5_bigip_group'] }}"
+        msg: "Inventory group f5_bigip_group: {{ groups['f5_bigip_group'] | default([]) }}"
+      when: f5_group_exists
+      run_once: true
+
+    - name: Fail if no hosts in f5_bigip_group
+      fail:
+        msg: "No hosts found in f5_bigip_group. Please define hosts in the inventory."
+      when: not f5_group_exists
       run_once: true
 
     - name: Initialize device_facts
       set_fact:
         device_facts: []
+      when: f5_group_exists
       run_once: true
 
     - name: Construct device_facts for each F5 host
@@ -164,15 +173,19 @@
             'tags': hostvars[f5_host].host_tags | default(omit),
             'comments': hostvars[f5_host].comments | default(omit)
         }] }}"
-      loop: "{{ groups['f5_bigip_group'] }}"
+      loop: "{{ groups['f5_bigip_group'] | default([]) }}"
       loop_control:
         loop_var: f5_host
-      when: hostvars[f5_host] is defined
+      when: f5_group_exists and hostvars[f5_host] is defined
 
     - name: Debug constructed device_facts
       debug:
         var: device_facts
+      when: f5_group_exists
       run_once: true
 
   roles:
     - role: nautobot_discovery
+      vars:
+        platform_name: tmos
+      when: f5_group_exists

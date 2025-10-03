@@ -1,0 +1,35 @@
+---
+# Helper for per-interface type mapping
+
+- name: Get media type for interface {{ intf_key }}
+  set_fact:
+    media_type: "{{ device.intf_dict[intf_key].platform_interface_type | default('other') }}"
+
+- name: Reset name-based match
+  set_fact:
+    name_match: ""
+
+- name: Debug interface_type_map
+  debug:
+    var: interface_type_map
+  when: debug | default(false)
+
+- name: Find name-based match (regex) for interface {{ intf_key }}
+  set_fact:
+    name_match: "{{ item.value }}"
+  loop: "{{ (interface_type_map.by_name | default({})) | dict2items }}"
+  when: intf_key is match(item.key)
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Determine Nautobot type for {{ intf_key }}
+  set_fact:
+    nb_type: "{{ name_match if name_match | length > 0 else (interface_type_map.by_media | default({})).get(media_type, 'other') }}"
+
+- name: Update interface details with Nautobot type
+  set_fact:
+    updated_intf_dict: "{{ updated_intf_dict | combine({intf_key: device.intf_dict[intf_key] | combine({'nautobot_type': nb_type})}) }}"
+
+- name: Debug mapped type
+  debug:
+    msg: "Interface {{ intf_key }}: platform_type='{{ media_type }}', nautobot_type='{{ nb_type }}'"

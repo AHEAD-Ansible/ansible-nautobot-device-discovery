@@ -13,12 +13,12 @@
     token: "{{ nautobot_token }}"
     name: "{{ tenant_name }}"
     state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
+    validate_certs: "{{ nautobot_discovery_validate_certs }}"
     query_params:
       - name
   register: tenant_create
-  when: tenant_list | length == 0 and create_missing_tenants | bool
+  when: tenant_list | length == 0 and nautobot_discovery_create_missing_tenants | bool
 
 - name: Set tenant ID
   ansible.builtin.set_fact:
-    tenant_ids: "{{ tenant_ids | default({}) | combine({tenant_name: tenant_create.tenant.id if tenant_create.changed else tenant_list[0].id}) }}"
+    nautobot_discovery_tenant_ids: "{{ nautobot_discovery_tenant_ids | default({}) | combine({tenant_name: tenant_create.tenant.id if tenant_create.changed else tenant_list[0].id}) }}"

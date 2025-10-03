@@ -1,0 +1,27 @@
+---
+- name: Build candidate paths for {{ platform_name }} interface map
+  ansible.builtin.set_fact:
+    _ifmap_candidates:
+      - "{{ role_path }}/files/platform_interfaces/{{ platform_name }}.json"
+      - "{{ playbook_dir }}/../platform_interfaces/{{ platform_name }}.json"
+      - "{{ playbook_dir }}/platform_interfaces/{{ platform_name }}.json"
+      - "{{ ansible_collections_paths[0] | default('~/.ansible/collections') }}/ansible_collections/networktocode/nautobot/files/platform_interfaces/{{ platform_name }}.json"
+
+- name: Resolve first existing interface map path
+  ansible.builtin.set_fact:
+    interface_type_map_path: "{{ lookup('first_found', _ifmap_candidates, errors='ignore') | default('', true) }}"
+
+- name: Load and parse interface map JSON (if found)
+  when: interface_type_map_path | length > 0
+  ansible.builtin.set_fact:
+    interface_type_map: "{{ lookup('file', interface_type_map_path) | from_json }}"
+
+- name: Default to empty interface map (if not found)
+  when: interface_type_map_path | length == 0
+  ansible.builtin.set_fact:
+    interface_type_map: { by_media: {}, by_name: {} }
+
+- name: Debug interface map path
+  ansible.builtin.debug:
+    msg: "Loaded interface map for {{ platform_name }} from {{ interface_type_map_path }}"
+  when: ifmap_debug | default(false) | bool

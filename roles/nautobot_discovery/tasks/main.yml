@@ -15,5 +15,5 @@
   loop: "{{ device_facts }}"
   loop_control:
     loop_var: device
-  ignore_errors: "{{ continue_on_error | bool }}"
-  # Allows playbook to continue on errors if continue_on_error is true
+  ignore_errors: "{{ nautobot_discovery_continue_on_error | bool }}"
+  # Allows playbook to continue on errors if nautobot_discovery_continue_on_error is true

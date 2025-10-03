@@ -33,7 +33,7 @@
 
 - name: Set route filter query
   set_fact:
-    route_filter: "device_id={{ device_id }}{% if route.vrf %} &vrf={{ vrf_ids[route.vrf] }}{% endif %} &destination__prefix={{ ip_prefix }} &destination__namespace={{ nautobot_namespace }}"
+    route_filter: "device_id={{ device_id }}{% if route.vrf %} &vrf={{ nautobot_discovery_vrf_ids[route.vrf] }}{% endif %} &destination__prefix={{ ip_prefix }} &destination__namespace={{ nautobot_discovery_namespace }}"
 
 - name: Lookup static route
   ansible.builtin.set_fact:
@@ -49,8 +49,8 @@
 
 - name: Fail on conflict if not overwrite
   fail:
-    msg: "Static route for {{ route.destination }} exists and allow_ip_overwrite is false"
-  when: route_conflict and not allow_ip_overwrite
+    msg: "Static route for {{ route.destination }} exists and nautobot_discovery_allow_ip_overwrite is false"
+  when: route_conflict and not nautobot_discovery_allow_ip_overwrite
 
 - name: Create static route if not exists
   ansible.builtin.uri:
@@ -63,15 +63,15 @@
     body: |
       {
         "device": "{{ device_id }}",
-        "vrf": "{{ vrf_ids[route.vrf] | default(null) }}",
+        "vrf": "{{ nautobot_discovery_vrf_ids[route.vrf] | default(null) }}",
         "destination": "{{ destination_prefix_id }}",
         "next_hops": ["{{ next_hop_ip_id }}"],
-        "tenant": "{{ tenant_ids[route.tenant] | default(null) }}",
-        "status": "{{ nautobot_status }}",
+        "tenant": "{{ nautobot_discovery_tenant_ids[route.tenant] | default(null) }}",
+        "status": "{{ nautobot_discovery_status }}",
         "metric": "{{ route.metric | default(1) }}",
         "comments": "{{ route.description | default('') }}"
       }
-    validate_certs: "{{ nautobot_validate_certs }}"
+    validate_certs: "{{ nautobot_discovery_validate_certs }}"
     status_code: 201, 200
-  when: not route_conflict or allow_ip_overwrite
+  when: not route_conflict or nautobot_discovery_allow_ip_overwrite
   register: route_api_result

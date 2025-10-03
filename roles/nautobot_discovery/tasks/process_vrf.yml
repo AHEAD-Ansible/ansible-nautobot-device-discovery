@@ -14,7 +14,7 @@
     name: "{{ vrf_name }}"
     rd: "{{ vrf_name }}"
     state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
+    validate_certs: "{{ nautobot_discovery_validate_certs }}"
     query_params:
       - name
       - rd
@@ -28,8 +28,10 @@
     vrf: "{{ vrf_create.vrf.id if vrf_create.changed else vrf_list[0].id }}"
     device: "{{ device_id }}"
     state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
+    validate_certs: "{{ nautobot_discovery_validate_certs }}"
+  when: vrf_list | length > 0 or vrf_create.changed
 
 - name: Set VRF ID
   ansible.builtin.set_fact:
-    vrf_ids: "{{ vrf_ids | default({}) | combine({vrf_name: vrf_create.vrf.id if vrf_create.changed else vrf_list[0].id}) }}"
+    nautobot_discovery_vrf_ids: "{{ nautobot_discovery_vrf_ids | default({}) | combine({vrf_name: vrf_create.vrf.id if vrf_create.changed else vrf_list[0].id}) }}"
+  when: vrf_list | length > 0 or vrf_create.changed

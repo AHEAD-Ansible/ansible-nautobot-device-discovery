@@ -1,7 +1,7 @@
 ---
-- name: Look up VLAN in Nautobot
+- name: Lookup VLAN
   ansible.builtin.set_fact:
-    vlan_lookup: "{{ lookup('networktocode.nautobot.lookup', 'vlans', api_filter='name=' + vlan + ' location=' + location_id, api_endpoint=nautobot_url, token=nautobot_token, raw_data=True, num_retries=3) | default({}) }}"
+    vlan_lookup: "{{ lookup('networktocode.nautobot.lookup', 'vlans', api_filter='name=' ~ vlan ~ ' location=' ~ location_id, api_endpoint=nautobot_url, token=nautobot_token, raw_data=True, num_retries=3) | default({}) }}"
 
 - name: Normalize VLAN lookup
   ansible.builtin.set_fact:
@@ -14,9 +14,9 @@
     name: "{{ vlan }}"
     vid: "{{ vlan_item.tag | default(1) }}"
     location: "{{ location_id }}"
-    status: "{{ nautobot_status }}"
+    status: "{{ nautobot_discovery_status }}"
     state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
+    validate_certs: "{{ nautobot_discovery_validate_certs }}"
     query_params:
       - name
       - location
@@ -25,12 +25,12 @@
 
 - name: Set VLAN ID
   ansible.builtin.set_fact:
-    vlan_ids: "{{ vlan_ids | default({}) | combine({vlan: vlan_create.vlan.id if vlan_create.changed else vlan_list[0].id}) }}"
+    nautobot_discovery_vlan_ids: "{{ nautobot_discovery_vlan_ids | default({}) | combine({vlan: vlan_create.vlan.id if vlan_create.changed else vlan_list[0].id}) }}"
   when: vlan_list | length > 0 or vlan_create.changed
 
-- name: Debug vlan_ids
+- name: Debug nautobot_discovery_vlan_ids
   debug:
-    var: vlan_ids
+    var: nautobot_discovery_vlan_ids
 
 - name: Associate VLAN with interface
   networktocode.nautobot.device_interface:
@@ -38,17 +38,17 @@
     token: "{{ nautobot_token }}"
     device: "{{ device_id }}"
     name: "{{ vlan_item.interfaces[0].name }}"
-    type: "{{ device.intf_dict[vlan_item.interfaces[0].name].type | default('other') }}"
+    type: "{{ device.intf_dict[vlan_item.interfaces[0].name].nautobot_type | default('other') }}"
     enabled: true
     mode: "access"
-    untagged_vlan: "{{ vlan_ids[vlan] }}"
-    status: "{{ nautobot_status }}"
+    untagged_vlan: "{{ nautobot_discovery_vlan_ids[vlan] }}"
+    status: "{{ nautobot_discovery_status }}"
     state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
+    validate_certs: "{{ nautobot_discovery_validate_certs }}"
     query_params:
       - device
       - name
-  when: vlan_ids[vlan] is defined and vlan_item.interfaces is defined and vlan_item.interfaces | length > 0 and vlan_item.interfaces[0].tagged == 'no'
+  when: nautobot_discovery_vlan_ids[vlan] is defined and vlan_item.interfaces is defined and vlan_item.interfaces | length > 0 and vlan_item.interfaces[0].tagged == 'no'
 
 - name: Associate tagged VLAN with interface
   networktocode.nautobot.device_interface:
@@ -56,14 +56,14 @@
     token: "{{ nautobot_token }}"
     device: "{{ device_id }}"
     name: "{{ vlan_item.interfaces[0].name }}"
-    type: "{{ device.intf_dict[vlan_item.interfaces[0].name].type | default('other') }}"
+    type: "{{ device.intf_dict[vlan_item.interfaces[0].name].nautobot_type | default('other') }}"
     enabled: true
-    tagged_vlans: "{{ [vlan_ids[vlan]] }}"
+    tagged_vlans: "{{ [nautobot_discovery_vlan_ids[vlan]] }}"
     mode: "tagged"
-    status: "{{ nautobot_status }}"
+    status: "{{ nautobot_discovery_status }}"
     state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
+    validate_certs: "{{ nautobot_discovery_validate_certs }}"
     query_params:
       - device
       - name
-  when: vlan_ids[vlan] is defined and vlan_item.interfaces is defined and vlan_item.interfaces | length > 0 and vlan_item.interfaces[0].tagged == 'yes'
+  when: nautobot_discovery_vlan_ids[vlan] is defined and vlan_item.interfaces is defined and vlan_item.interfaces | length > 0 and vlan_item.interfaces[0].tagged == 'yes'

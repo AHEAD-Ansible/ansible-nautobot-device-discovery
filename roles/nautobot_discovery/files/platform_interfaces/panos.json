@@ -1,0 +1,18 @@
+{
+  "by_media": {
+    "ethernet": "1000base-t",
+    "aggregate": "lag",
+    "vlan": "virtual",
+    "loopback": "virtual",
+    "tunnel": "virtual",
+    "other": "other"
+  },
+  "by_name": {
+    "^ethernet\\d+/\\d+(\\.\\d+)?$": "1000base-t",
+    "^ae\\d+(\\.\\d+)?$": "lag",
+    "^loopback\\d+$": "virtual",
+    "^tunnel\\d+$": "virtual",
+    "^vlan\\.\\d+$": "virtual",
+    "^management$": "1000base-t"
+  }
+}
