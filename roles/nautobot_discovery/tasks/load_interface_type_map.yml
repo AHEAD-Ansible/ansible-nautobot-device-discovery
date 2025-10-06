@@ -20,8 +20,3 @@
   when: interface_type_map_path | length == 0
   ansible.builtin.set_fact:
     interface_type_map: { by_media: {}, by_name: {} }
-
-- name: Debug interface map path
-  ansible.builtin.debug:
-    msg: "Loaded interface map for {{ platform_name }} from {{ interface_type_map_path }}"
-  when: ifmap_debug | default(false) | bool

@@ -29,7 +29,3 @@
 - name: Update interface details with Nautobot type
   set_fact:
     updated_intf_dict: "{{ updated_intf_dict | combine({intf_key: device.intf_dict[intf_key] | combine({'nautobot_type': nb_type})}) }}"
-
-- name: Debug mapped type
-  debug:
-    msg: "Interface {{ intf_key }}: platform_type='{{ media_type }}', nautobot_type='{{ nb_type }}'"

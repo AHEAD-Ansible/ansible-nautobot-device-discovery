@@ -33,7 +33,7 @@
 
 # Process IP addresses
 - name: Process IP addresses
-  include_tasks: interface_ip_assignment.yml
+  include_tasks: process_ip.yml
   loop: "{{ intf.ip_addresses | default([]) }}"
   loop_control:
     loop_var: ip

@@ -1,9 +1,33 @@
 ---
+# Reusable task to process an IP address for Nautobot, ensuring it exists and is optionally assigned to an interface.
+# Variables required:
+# - ip: The IP address with prefix (e.g., '10.0.0.1/24')
+# - nautobot_url: Nautobot API URL
+# - nautobot_token: Nautobot API token
+# - nautobot_discovery_namespace: Namespace for IP lookup (default in defaults/main.yml)
+# Optional variables:
+# - device_id: Device ID for conflict checking
+# - interface_id: Interface ID for IP assignment (if defined, IP is assigned to this interface)
+# - tenant: Tenant name for IP assignment
+# - vrf: VRF name for IP assignment
+# Outputs:
+# - ip_obj: The IP address object (with 'id', 'address', etc.)
+
 - name: Parse IP address and prefix
   ansible.builtin.include_tasks: parse_ip.yml
 
 - name: Ensure parent prefix exists
   include_tasks: process_prefix.yml
+
+- name: Validate parent prefix
+  ansible.builtin.set_fact:
+    parent_prefix: "{{ lookup('networktocode.nautobot.lookup', 'prefixes', api_filter='prefix=' + ip_prefix + ' namespace=' + nautobot_discovery_namespace, api_endpoint=nautobot_url, token=nautobot_token, raw_data=True, num_retries=3) | default({}) }}"
+  when: ip_prefix is defined
+
+- name: Debug parent prefix mismatch
+  ansible.builtin.debug:
+    msg: "Parent prefix {{ ip_prefix }} not found or incorrect for IP {{ ip }} in namespace {{ nautobot_discovery_namespace }}. Expected prefix: {{ parent_prefix.prefix if parent_prefix.prefix is defined else 'None' }}."
+  when: parent_prefix | length == 0 or parent_prefix.prefix != ip_prefix
 
 - name: Look up IP address in Nautobot
   ansible.builtin.include_tasks: lookup_and_normalize.yml
@@ -48,7 +72,6 @@
       networktocode.nautobot.ip_address:
         url: "{{ nautobot_url }}"
         token: "{{ nautobot_token }}"
-        parent: "{{ nautobot_discovery_prefix_ids[ip_prefix] if ip_prefix in nautobot_discovery_prefix_ids else omit }}"
         state: new
         validate_certs: "{{ nautobot_discovery_validate_certs }}"
         namespace: "{{ nautobot_discovery_namespace }}"
@@ -76,12 +99,16 @@
     loop_var: bad_int
   when: has_conflict and nautobot_discovery_allow_ip_overwrite | bool and not nautobot_discovery_use_next_available_on_conflict | bool
 
+- name: Debug IP creation attempt
+  ansible.builtin.debug:
+    msg: "Attempting to create IP {{ ip }} in namespace {{ nautobot_discovery_namespace }} with tenant {{ tenant | default('None') }}."
+  when: not ip_exists
+
 - name: Create IP if not exists
   networktocode.nautobot.ip_address:
     url: "{{ nautobot_url }}"
     token: "{{ nautobot_token }}"
     address: "{{ ip }}"
-    parent: "{{ nautobot_discovery_prefix_ids[ip_prefix] if ip_prefix in nautobot_discovery_prefix_ids else omit }}"
     status: "{{ nautobot_discovery_status }}"
     state: present
     namespace: "{{ nautobot_discovery_namespace }}"
@@ -90,9 +117,15 @@
     query_params:
       - namespace
       - address
+    type: "Host"
   register: ip_create
   when: not ip_exists
-  ignore_errors: "{{ nautobot_discovery_continue_on_error | bool }}"  # Optional: Task-level ignore if needed
+  ignore_errors: "{{ nautobot_discovery_continue_on_error | bool }}"
+
+- name: Debug IP creation failure
+  ansible.builtin.debug:
+    msg: "Failed to create IP {{ ip }}: {{ ip_create.msg | default('Unknown error') }}."
+  when: not ip_exists and ip_create.failed | default(false)
 
 - name: Set IP object
   ansible.builtin.set_fact:

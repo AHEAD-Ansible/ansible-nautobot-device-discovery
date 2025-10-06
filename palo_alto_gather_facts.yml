@@ -1,3 +1,4 @@
+---
 - name: Gather Facts from Palo Alto Firewalls
   hosts: palo_alto_group
   gather_facts: no
@@ -10,23 +11,23 @@
       password: "{{ ansible_password }}"
       api_key: "{{ ansible_api_key | default(omit) }}"
   tasks:
-    - name: Retrieve management interface details
+    - name: Fetch management IP
       panos_op:
         provider: "{{ provider }}"
         cmd: "show interface management"
-      register: mgmt_result
+      register: mgmt_ip_result
       ignore_errors: true
       delegate_to: localhost
 
-    - name: Parse management IP and netmask from JSON output
+    - name: Parse management IP and netmask
       set_fact:
-        mgmt_ip_raw: "{{ (mgmt_result.stdout | from_json).response.result.info.ip | default('') | trim }}"
-        mgmt_netmask: "{{ (mgmt_result.stdout | from_json).response.result.info.netmask | default('') | trim }}"
-      when: mgmt_result.stdout is defined and not mgmt_result.failed
+        mgmt_ip_raw: "{{ (mgmt_ip_result.stdout | from_json).response.result.info.ip | default('') | trim }}"
+        mgmt_netmask: "{{ (mgmt_ip_result.stdout | from_json).response.result.info.netmask | default('') | trim }}"
+      when: mgmt_ip_result.stdout is defined and not mgmt_ip_result.failed
       delegate_to: localhost
 
     - name: Convert netmask to CIDR prefix
-      command: python -c "import ipaddress; print(ipaddress.ip_network('0.0.0.0/{{ mgmt_netmask }}').prefixlen)"
+      command: python -c "import ipaddress; netmask = '{{ mgmt_netmask }}'; prefix = sum([bin(int(x)).count('1') for x in netmask.split('.')]); print(prefix)"
       register: prefix_result
       changed_when: false
       when: mgmt_netmask != ''
@@ -34,17 +35,18 @@
 
     - name: Set management IP with CIDR notation
       set_fact:
-        mgmt_ip: "{{ mgmt_ip_raw ~ '/' ~ (prefix_result.stdout | trim) if mgmt_ip_raw and prefix_result.stdout else ansible_host ~ '/32' }}"
+        mgmt_ip: "{{ mgmt_ip_raw ~ '/' ~ (prefix_result.stdout | trim) if mgmt_ip_raw and prefix_result.stdout else ansible_host ~ '/24' }}"
       when: mgmt_ip_raw is defined
       delegate_to: localhost
 
-    - name: Gather system, interface, and virtual router facts
+    - name: Collect Palo Alto device information
       panos_facts:
         provider: "{{ provider }}"
         gather_subset: ['all']
       register: pa_facts
       ignore_errors: true
       delegate_to: localhost
+
 
     - name: Get all interfaces
       panos_op:
@@ -54,29 +56,7 @@
       ignore_errors: true
       delegate_to: localhost
 
-    - name: Initialize hw_intf_list
-      set_fact:
-        hw_intf_list: []
-      delegate_to: localhost
-
-    - name: Parse all interfaces (extract names like ethernet1/1)
-      set_fact:
-        hw_intf_list: "{{ hw_intf_list + [{'name': item.split()[0], 'platform_interface_type': 'ethernet', 'ip_addresses': [], 'vrf': 'default'}] }}"
-      loop: "{{ all_intf_raw.stdout_lines | select('match', '^(eth|ethernet)') | list }}"
-      delegate_to: localhost
-
-    - name: Initialize interfaces dictionary
-      set_fact:
-        intf_dict: {}
-      delegate_to: localhost
-
-    - name: Merge hardware interfaces into intf_dict (add if missing)
-      set_fact:
-        intf_dict: "{{ intf_dict | combine({item.name: intf_dict[item.name] | default({}) | combine(item, recursive=true)}) }}"
-      loop: "{{ hw_intf_list | default([]) }}"
-      delegate_to: localhost
-
-    - name: Collect VLAN facts via CLI
+    - name: Collect VLAN facts
       panos_op:
         provider: "{{ provider }}"
         cmd: "show vlan all"
@@ -84,13 +64,7 @@
       ignore_errors: true
       delegate_to: localhost
 
-    - name: Parse VLAN facts from CLI output
-      set_fact:
-        pa_vlans:
-          vlans: "{{ vlan_raw.stdout_lines | select('match', '^vlan.*') | map('regex_replace', '^vlan\\s+(\\S+)\\s+(\\d+)\\s+(\\S+.*)', '{\"name\": \"\\1\", \"tag\": \\2, \"interfaces\": [{\"name\": \"\\3\", \"tagged\": \"yes\"}]}') | map('from_json') | list | default([]) }}"
-      delegate_to: localhost
-
-    - name: Collect static route facts via CLI/XML
+    - name: Collect static route facts
       panos_op:
         provider: "{{ provider }}"
         cmd: '<show><routing><route></route></routing></show>'
@@ -101,75 +75,54 @@
 
     - name: Set system facts
       set_fact:
-        pa_system:
-          hostname: "{{ pa_facts.ansible_net_hostname | default(inventory_hostname) }}"
-          serial: "{{ pa_facts.ansible_net_serial | default('UNKNOWN') }}"
-          model: "{{ pa_facts.ansible_net_model | default('PA-Series') }}"
-          sw_version: "{{ pa_facts.ansible_net_version | default('Unknown') }}"
-      delegate_to: localhost
+        hostname: "{{ pa_facts.ansible_facts.ansible_net_hostname | default(inventory_hostname) }}"
+        serial_number: "{{ pa_facts.ansible_facts.ansible_net_serial | default('UNKNOWN') }}"
+        model: "{{ pa_facts.ansible_facts.ansible_net_model | default('PA-Series') }}"
+        software_version: "{{ pa_facts.ansible_facts.ansible_net_version | default('Unknown') }}"
+      when: pa_facts.ansible_facts is defined
 
-    - name: Set serial number
+    - name: Initialize interfaces dictionary
       set_fact:
-        serial_number: "{{ pa_system.serial | default('UNKNOWN') }}"
-      delegate_to: localhost
+        intf_dict: {}
 
-    - name: Set model
-      set_fact:
-        model: "{{ pa_system.model | default('PA-Series') }}"
-      delegate_to: localhost
-
-    - name: Set software version
-      set_fact:
-        software_version: "{{ pa_system.sw_version | default('Unknown') }}"
-      delegate_to: localhost
-
-    - name: Set hostname
-      set_fact:
-        hostname: "{{ pa_system.hostname | default(inventory_hostname) }}"
-      delegate_to: localhost
-
-    - name: Add interfaces to dictionary with platform_interface_type
+    - name: Add interfaces from facts
       set_fact:
         intf_dict: "{{ intf_dict | combine({item.name: {
-            'platform_interface_type': item.platform_interface_type | default('other'),
-            'ip_addresses': item.ip | default([]) | map('regex_replace', '^(.*)$', '\\1/' ~ (item.netmask | default('255.255.255.255') | regex_replace('^.*\\/(\\d+)$', '\\1') | default('32'))) | list,
-            'zone': item.zone | default(omit),
-            'vrf': item.virtual_router | default('default')
+            'platform_interface_type': '1000base-t' if item.name is match('^ethernet\\d+/\\d+$') else 'lag' if item.name is match('^ae\\d+$') else 'virtual' if item.name is match('^(vlan|loopback|tunnel|ethernet\\d+/\\d+\\.\\d+)$') else 'other',
+            'ip_addresses': [item.ip] if item.ip and item.ip != 'N/A' else [],
+            'vlan': item.tag | int | default(omit) if item.tag and item.tag != '0' else omit,
+            'vrf': item.fwd | regex_replace('^vr:', '') | default(omit) if item.fwd and item.fwd != 'N/A' else omit,
+            'zone': item.zone | default(omit) if item.zone and item.zone != '' else omit
         }}) }}"
-      loop: "{{ all_interfaces }}"
+      loop: "{{ (all_intf_raw.stdout | from_json).response.result.ifnet.entry | default([]) }}"
       delegate_to: localhost
 
-    - name: Add management IP if not included
-      set_fact:
-        intf_dict: >-
-          {{
-            intf_dict | combine({
-              'management': {
-                'platform_interface_type': 'ethernet',
-                'ip_addresses': [ hostvars[inventory_hostname].ansible_host ~ '/24' ]
-              }
-            }, recursive=True)
-          }}
-      when: "'management' not in intf_dict"
-      delegate_to: localhost
-
-    - name: Assign VLAN tags to subinterfaces
+    - name: Add management interface
       set_fact:
         intf_dict: "{{ intf_dict | combine({
-            item.key: item.value | combine({
-                'vlan': item.key.split('.')[-1] | int | default(omit)
-            })
+            'management': {
+                'platform_interface_type': '1000base-t',
+                'ip_addresses': [ mgmt_ip ],
+                'vlan': omit,
+                'vrf': 'default',
+                'zone': omit
+            }
         }) }}"
-      loop: "{{ intf_dict | dict2items }}"
-      when: item.key is match('.*\\.\\d+')
+      when: "'management' not in intf_dict"
+
+    - name: Parse VLAN facts
+      set_fact:
+        ansible_net_vlans: "{{ vlan_raw.stdout | from_json | json_query('response.result.entries.entry[*].{name: name, tag: vid | int, interfaces: interfaces[*].{name: ifname, tagged: \"yes\"}}') | default([], true) }}"
       delegate_to: localhost
 
-    - name: Extract static routes
+    - name: Parse virtual routers
       set_fact:
-        static_routes: "{{ static_routes_raw.response | default('') | regex_findall(
-            '<entry>.*?<virtual-router>(.*?)</virtual-router>.*?<flags>.*?S.*?</flags>.*?<destination>(.*?)</destination>.*?<nexthop><ip-address>(.*?)</ip-address></nexthop>.*?<metric>(\\d+)</metric>.*?</entry>',
-            multiline=true
-        ) | map('regex_replace', '^(.*)$', '{\"vrf\": \"\\1\", \"destination\": \"\\2\", \"next_hop\": \"\\3\", \"metric\": \\4}') | map('from_json') | list | default([]) }}"
+        ansible_net_route_domains: "{{ pa_facts.ansible_facts.ansible_net_virtual_routers | default([]) | map(attribute='vr_name') | list | default(['default']) }}"
+      when: pa_facts.ansible_facts is defined
+
+    - name: Parse static routes
+      set_fact:
+        static_routes: "{{ static_routes_raw.stdout | from_json | json_query('response.result.entry[*] | [?contains(flags, `A S`)].{vrf: `virtual-router`, destination: destination, next_hop: nexthop, metric: metric | string}') | default([]) }}"
       delegate_to: localhost
 
     - name: Build interfaces list
@@ -182,7 +135,7 @@
             'vrf': intf_dict[key].vrf | default(omit),
             'zone': intf_dict[key].zone | default(omit)
         }] }}"
-      loop: "{{ intf_dict.keys() | list }}"
+      loop: "{{ intf_dict.keys() | select('match', '^(ethernet|management).*') | list }}"
       loop_control:
         loop_var: key
       delegate_to: localhost
@@ -192,14 +145,27 @@
   connection: local
   gather_facts: false
   pre_tasks:
+    - name: Check if palo_alto_group exists
+      set_fact:
+        pa_group_exists: "{{ groups['palo_alto_group'] is defined and groups['palo_alto_group'] | length > 0 }}"
+      run_once: true
+
     - name: Debug inventory group
       debug:
-        msg: "Inventory group palo_alto_group: {{ groups['palo_alto_group'] }}"
+        msg: "Inventory group palo_alto_group: {{ groups['palo_alto_group'] | default([]) }}"
+      when: pa_group_exists
+      run_once: true
+
+    - name: Fail if no hosts in palo_alto_group
+      fail:
+        msg: "No hosts found in palo_alto_group. Please define hosts in the inventory."
+      when: not pa_group_exists
       run_once: true
 
     - name: Initialize device_facts
       set_fact:
         device_facts: []
+      when: pa_group_exists
       run_once: true
 
     - name: Construct device_facts for each Palo Alto host
@@ -210,13 +176,15 @@
             'vendor': 'Palo Alto',
             'model': hostvars[pa_host].model | default('PA-Series'),
             'device_type': 'Firewall',
-            'location': hostvars[pa_host].location | default('DataCenter-East'),
+            'location': hostvars[pa_host].location | default('DataCenter-West'),
             'platform': 'panos',
             'interfaces': hostvars[pa_host].interfaces_list | default([]),
             'primary_ip4': hostvars[pa_host].mgmt_ip | default(''),
             'software_version': hostvars[pa_host].software_version | default('Unknown'),
-            'vrfs': hostvars[pa_host].virtual_routers | default([]),
-            'vlans': hostvars[pa_host].vlans | default([]) | map(attribute='name') | list,
+            'vrfs': hostvars[pa_host].ansible_net_route_domains | default([]),
+            'vlan_details': hostvars[pa_host].ansible_net_vlans | default([], true),
+            'vlans': (hostvars[pa_host].ansible_net_vlans | default([], true)) | map(attribute='name') | list,
+            'static_routes': hostvars[pa_host].static_routes | default([]),
             'intf_dict': hostvars[pa_host].intf_dict | default({}),
             'rack': hostvars[pa_host].rack | default(omit),
             'position': hostvars[pa_host].position | default(omit),
@@ -225,17 +193,16 @@
             'tags': hostvars[pa_host].host_tags | default(omit),
             'comments': hostvars[pa_host].comments | default(omit)
         }] }}"
-      loop: "{{ groups['palo_alto_group'] }}"
+      loop: "{{ groups['palo_alto_group'] | default([]) }}"
       loop_control:
         loop_var: pa_host
-      when: hostvars[pa_host] is defined
+      when: pa_group_exists and hostvars[pa_host] is defined
 
-    - name: Debug constructed device_facts
-      debug:
-        var: device_facts
-      run_once: true
 
   roles:
     - role: nautobot_discovery
       vars:
+        nautobot_url: "{{ nautobot_url }}"
+        nautobot_token: "{{ nautobot_token }}"
         platform_name: panos
+      when: pa_group_exists

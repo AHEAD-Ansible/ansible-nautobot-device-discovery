@@ -28,11 +28,6 @@
     var_name: ip_lookup
     list_var: ip_list
 
-- name: Debug IP lookup result
-  ansible.builtin.debug:
-    msg: "IP {{ ip }} lookup result: {{ ip_lookup }}"
-  when: ip_list | length > 0
-
 - name: Check if IP exists
   ansible.builtin.set_fact:
     ip_exists: "{{ ip_list | length > 0 }}"

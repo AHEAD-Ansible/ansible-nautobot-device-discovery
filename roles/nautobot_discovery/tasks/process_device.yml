@@ -22,7 +22,6 @@
     validate_certs: "{{ nautobot_discovery_validate_certs }}"
     query_params:
       - name
-      - manufacturer
   register: platform
 
 # Ensure device role exists
@@ -320,14 +319,14 @@
 # Process VLANs
 - name: Process VLANs
   ansible.builtin.include_tasks: process_vlan.yml
-  loop: "{{ device.vlans | default([]) }}"
+  loop: "{{ device.vlans | default([] , true) }}"
   loop_control:
     loop_var: vlan
     label: "{{ vlan }}"
   vars:
-    vlan_item: "{{ hostvars['f5_bigip'].ansible_net_vlans | selectattr('name', 'equalto', vlan) | first | default({}) }}"
+    vlan_item: "{{ device.vlan_details | selectattr('name', 'equalto', vlan) | first | default({}) }}"
     location_id: "{{ location.id }}"
-  when: device.vlans is defined and device.vlans | length > 0
+  when: device.vlans is defined and (device.vlans | default([] , true) | length > 0)
 
 # Process interfaces
 - name: Process interfaces

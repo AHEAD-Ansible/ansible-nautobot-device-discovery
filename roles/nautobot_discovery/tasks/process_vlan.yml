@@ -28,10 +28,6 @@
     nautobot_discovery_vlan_ids: "{{ nautobot_discovery_vlan_ids | default({}) | combine({vlan: vlan_create.vlan.id if vlan_create.changed else vlan_list[0].id}) }}"
   when: vlan_list | length > 0 or vlan_create.changed
 
-- name: Debug nautobot_discovery_vlan_ids
-  debug:
-    var: nautobot_discovery_vlan_ids
-
 - name: Associate VLAN with interface
   networktocode.nautobot.device_interface:
     url: "{{ nautobot_url }}"

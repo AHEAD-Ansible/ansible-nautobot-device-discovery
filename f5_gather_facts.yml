@@ -48,6 +48,10 @@
         system_info: "{{ f5_facts.system_info | default({}) }}"
         virtual_servers: "{{ f5_facts.virtual_servers | default([]) }}"
 
+    - name: Set ansible_net_vlans
+      set_fact:
+        ansible_net_vlans: "{{ vlans | default([], true) }}"
+
     - name: Set serial number (from system-info or fallback to mgmt MAC)
       set_fact:
         serial_number: "{{ system_info.chassis_serial | default( (interfaces | selectattr('name', 'equalto', 'mgmt') | map(attribute='mac_address') | first | default('UNKNOWN') | replace(':', '') | upper) ) }}"
@@ -132,12 +136,6 @@
         f5_group_exists: "{{ groups['f5_bigip_group'] is defined and groups['f5_bigip_group'] | length > 0 }}"
       run_once: true
 
-    - name: Debug inventory group
-      debug:
-        msg: "Inventory group f5_bigip_group: {{ groups['f5_bigip_group'] | default([]) }}"
-      when: f5_group_exists
-      run_once: true
-
     - name: Fail if no hosts in f5_bigip_group
       fail:
         msg: "No hosts found in f5_bigip_group. Please define hosts in the inventory."
@@ -164,7 +162,8 @@
             'primary_ip4': hostvars[f5_host].mgmt_ip | default(''),
             'software_version': hostvars[f5_host].software_version | default('Unknown'),
             'vrfs': hostvars[f5_host].ansible_net_route_domains | default([]) | map(attribute='name') | list,
-            'vlans': hostvars[f5_host].ansible_net_vlans | default([]) | map(attribute='name') | list,
+            'vlan_details': hostvars[f5_host].ansible_net_vlans | default([], true),
+            'vlans': (hostvars[f5_host].ansible_net_vlans | default([], true)) | map(attribute='name') | list,
             'intf_dict': hostvars[f5_host].intf_dict | default({}),
             'rack': hostvars[f5_host].rack | default(omit),
             'position': hostvars[f5_host].position | default(omit),
@@ -177,12 +176,6 @@
       loop_control:
         loop_var: f5_host
       when: f5_group_exists and hostvars[f5_host] is defined
-
-    - name: Debug constructed device_facts
-      debug:
-        var: device_facts
-      when: f5_group_exists
-      run_once: true
 
   roles:
     - role: nautobot_discovery
