@@ -1,0 +1,24 @@
+---
+# Lookup tag in Nautobot
+- name: Lookup tag
+  ansible.builtin.set_fact:
+    tag_lookup: "{{ lookup('networktocode.nautobot.lookup', 'tags', api_filter='name=' ~ tag_name, api_endpoint=nautobot_url, token=nautobot_token, validate_certs=nautobot_validate_certs, raw_data=False, num_retries=3) | default([]) }}"
+
+# Normalize tag lookup
+- name: Normalize tag lookup
+  ansible.builtin.set_fact:
+    tag_list: "{{ [tag_lookup] if tag_lookup is mapping else tag_lookup if tag_lookup is iterable and not (tag_lookup is string) else [] }}"
+
+# Create tag if not exists
+- name: Create tag if not exists
+  networktocode.nautobot.tag:
+    url: "{{ nautobot_url }}"
+    token: "{{ nautobot_token }}"
+    name: "{{ tag_name }}"
+    content_types:
+      - dcim.device
+    state: present
+    validate_certs: "{{ nautobot_validate_certs }}"
+    query_params:
+      - name
+  when: tag_list | length == 0
