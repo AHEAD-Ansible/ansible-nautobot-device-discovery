@@ -14,3 +14,6 @@ prefix_ids: {}
 vrf_ids: {}
 tenant_ids: {}
 vlan_ids: {}
+rack_u_height: 42  # Standard 42U rack height
+rack_type: "2-post-frame"  # Common rack type
+rack_width: 19  # Standard 19-inch rack width
