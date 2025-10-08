@@ -1,0 +1,76 @@
+---
+api_base_url: "{{ nautobot_url | regex_replace('/+$', '') }}/api"  # Strip trailing slashes
+api_headers:
+  Authorization: "Token {{ nautobot_token }}"
+  Content-Type: application/json
+  Accept: application/json
+
+endpoints:
+  manufacturers:
+    path: /dcim/manufacturers/
+    required_fields: [name]
+    slug_from: name
+  platforms:
+    path: /dcim/platforms/
+    required_fields: [name, manufacturer]
+    slug_from: name
+  device_roles:
+    path: /dcim/device-roles/
+    required_fields: [name, color]
+    slug_from: name
+  device_types:
+    path: /dcim/device-types/
+    required_fields: [model, manufacturer, u_height]
+    slug_from: model
+  tenants:
+    path: /tenancy/tenants/
+    required_fields: [name]
+    slug_from: name
+  software_versions:
+    path: /dcim/software-versions/
+    required_fields: [version, platform]
+    slug_from: version
+  location_types:
+    path: /dcim/location-types/
+    required_fields: [name, content_types]
+    slug_from: name
+  locations:
+    path: /dcim/locations/
+    required_fields: [name, location_type, status]
+    slug_from: name
+  racks:
+    path: /dcim/racks/
+    required_fields: [name, location, status, u_height, type, width]
+    slug_from: name
+  tags:
+    path: /extras/tags/
+    required_fields: [name, content_types]
+    slug_from: name
+  devices:
+    path: /dcim/devices/
+    required_fields: [name, device_type, role, location, status, serial]
+    slug_from: name
+  interfaces:
+    path: /dcim/interfaces/
+    required_fields: [device, name, type, enabled, status]
+    slug_from: name
+  ip_addresses:
+    path: /ipam/ip-addresses/
+    required_fields: [address, status, namespace]
+    slug_from: null
+  prefixes:
+    path: /ipam/prefixes/
+    required_fields: [prefix, namespace, status]
+    slug_from: null
+  vrfs:
+    path: /ipam/vrfs/
+    required_fields: [name, rd]
+    slug_from: name
+  vlans:
+    path: /ipam/vlans/
+    required_fields: [name, vid, location, status]
+    slug_from: name
+  static_routes:
+    path: /ipam/static-routes/
+    required_fields: [device, destination, next_hops, status]
+    slug_from: null

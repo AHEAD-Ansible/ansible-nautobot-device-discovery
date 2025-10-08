@@ -1,35 +1,37 @@
 ---
-- name: Lookup VRF
-  ansible.builtin.set_fact:
-    vrf_lookup: "{{ lookup('networktocode.nautobot.lookup', 'vrfs', api_filter='name=' ~ vrf_name, api_endpoint=nautobot_url, token=nautobot_token, raw_data=True, num_retries=3) | default({}) }}"
+- include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.vrfs }}"
+    filters:
+      name: "{{ vrf_name }}"
+    var_name: vrf_list
 
-- name: Normalize VRF lookup
-  ansible.builtin.set_fact:
-    vrf_list: "{{ [vrf_lookup] if vrf_lookup is mapping else vrf_lookup if vrf_lookup is iterable and not (vrf_lookup is string) else [] }}"
+- name: Set existing VRF
+  set_fact:
+    vrf: "{{ vrf_list[0] if vrf_list | length > 0 else {} }}"
 
-- name: Create VRF if not exists
-  networktocode.nautobot.vrf:
-    url: "{{ nautobot_url }}"
-    token: "{{ nautobot_token }}"
-    name: "{{ vrf_name }}"
-    rd: "{{ vrf_name }}"
-    state: present
+- name: Create or update VRF
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.vrfs }}"
+    obj_id: "{{ vrf.id if vrf.id is defined }}"
+    body:
+      name: "{{ vrf_name }}"
+      rd: "{{ vrf_name }}"
+    var_name: vrf
+  when: vrf_list | length == 0 or vrf.id is defined
+
+- name: Assign VRF to device
+  ansible.builtin.uri:
+    url: "{{ api_base_url }}/ipam/vrf-device-assignments/"
+    headers: "{{ api_headers }}"
+    method: POST
+    body: "{{ {'vrf': {'id': vrf.id}, 'device': {'id': device_id}} | to_json }}"
+    body_format: json
     validate_certs: "{{ nautobot_validate_certs }}"
-    query_params:
-      - name
-      - rd
-  register: vrf_create
-  when: vrf_list | length == 0
+    status_code: 201, 200
+  when: vrf.id is defined
+  ignore_errors: "{{ continue_on_error | bool }}"
 
-- name: Ensure VRF is assigned to device
-  networktocode.nautobot.vrf_device_assignment:
-    url: "{{ nautobot_url }}"
-    token: "{{ nautobot_token }}"
-    vrf: "{{ vrf_create.vrf.id if vrf_create.changed else vrf_list[0].id }}"
-    device: "{{ device_id }}"
-    state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
-
-- name: Set VRF ID
-  ansible.builtin.set_fact:
-    vrf_ids: "{{ vrf_ids | default({}) | combine({vrf_name: vrf_create.vrf.id if vrf_create.changed else vrf_list[0].id}) }}"
+- set_fact:
+    vrf_ids: "{{ vrf_ids | default({}) | combine({vrf_name: vrf.id}) }}"

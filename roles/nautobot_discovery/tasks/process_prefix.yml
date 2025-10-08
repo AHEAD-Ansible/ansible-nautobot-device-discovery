@@ -1,34 +1,30 @@
 ---
-- name: Include lookup and normalize tasks
-  include_tasks: lookup_and_normalize.yml
+- include_tasks: api_lookup.yml
   vars:
-    endpoint: 'prefixes'
-    filter_query: 'prefix={{ ip_prefix }} namespace={{ nautobot_namespace }}{% if prefix_vrf is defined and prefix_vrf in vrf_ids %} vrfs={{ vrf_ids[prefix_vrf] }}{% endif %}'
-    var_name: exact_prefix
-    list_var: exact_list
+    endpoint: "{{ endpoints.prefixes }}"
+    filters:
+      prefix: "{{ ip_prefix }}"
+      namespace: "{{ nautobot_namespace }}"
+      vrf: "{{ vrf_ids[prefix_vrf] if prefix_vrf is defined and prefix_vrf in vrf_ids else omit }}"
+    var_name: prefix_list
 
-- name: Create prefix if not exists
-  networktocode.nautobot.prefix:
-    url: "{{ nautobot_url }}"
-    token: "{{ nautobot_token }}"
-    prefix: "{{ ip_prefix }}"
-    namespace: "{{ nautobot_namespace }}"
-    vrf: "{{ vrf_ids[prefix_vrf] if prefix_vrf is defined and prefix_vrf in vrf_ids else omit }}"  # Add VRF to prefix
-    status: "{{ nautobot_status }}"
-    state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
-    query_params:
-      - prefix
-      - namespace
-      - vrf  # Valid for prefix list queries
-  register: prefix_create
-  when: exact_list | length == 0
+- name: Set existing prefix
+  set_fact:
+    prefix: "{{ prefix_list[0] if prefix_list | length > 0 else {} }}"
 
-- name: Set parent prefix ID
-  ansible.builtin.set_fact:
-    parent_prefix_id: "{{ prefix_create.prefix.id if prefix_create.changed else exact_list[0].id if exact_list | length > 0 else omit }}"
+- name: Create or update prefix
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.prefixes }}"
+    obj_id: "{{ prefix.id if prefix.id is defined }}"
+    body:
+      prefix: "{{ ip_prefix }}"
+      namespace: "{{ nautobot_namespace }}"
+      status: "{{ nautobot_status }}"
+      vrf:
+        id: "{{ vrf_ids[prefix_vrf] if prefix_vrf is defined and prefix_vrf in vrf_ids else omit }}"
+    var_name: prefix
+  when: prefix_list | length == 0 or prefix.id is defined
 
-- name: Store prefix ID in dict
-  ansible.builtin.set_fact:
-    prefix_ids: "{{ prefix_ids | combine({(prefix_vrf|default('')) ~ ':' ~ ip_prefix: parent_prefix_id}) if prefix_vrf is defined else prefix_ids | combine({ip_prefix: parent_prefix_id}) }}"
-  when: parent_prefix_id is not none and parent_prefix_id != omit
+- set_fact:
+    prefix_ids: "{{ prefix_ids | default({}) | combine({(prefix_vrf|default('')) ~ ':' ~ ip_prefix: prefix.id}) if prefix_vrf is defined else prefix_ids | combine({ip_prefix: prefix.id}) }}"

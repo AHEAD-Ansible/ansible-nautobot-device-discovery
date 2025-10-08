@@ -1,0 +1,18 @@
+---
+- name: Allocate next available IP from prefix {{ parent_prefix_id }}
+  ansible.builtin.uri:
+    url: "{{ api_base_url }}/ipam/prefixes/{{ parent_prefix_id }}/available-ips/"
+    headers: "{{ api_headers }}"
+    method: POST
+    body: "{{ {'status': nautobot_status, 'namespace': nautobot_namespace} | to_json }}"
+    body_format: json
+    validate_certs: "{{ nautobot_validate_certs }}"
+    status_code: 201
+  register: next_ip_result
+  ignore_errors: "{{ continue_on_error | bool }}"
+
+- name: Set next IP facts
+  set_fact:
+    ip_obj: "{{ next_ip_result.json }}"
+    ip: "{{ next_ip_result.json.address }}"
+  when: next_ip_result.status == 201

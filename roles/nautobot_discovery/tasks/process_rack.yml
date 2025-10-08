@@ -1,0 +1,36 @@
+---
+- include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.racks }}"
+    filters:
+      name: "{{ device.rack }}"
+      location: "{{ location_id }}"
+    var_name: rack_list
+
+- name: Set existing rack
+  set_fact:
+    rack: "{{ rack_list[0] if rack_list | length > 0 else {} }}"
+
+- name: Create or update rack
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.racks }}"
+    obj_id: "{{ rack.id if rack.id is defined }}"
+    body:
+      name: "{{ device.rack }}"
+      location:
+        id: "{{ location_id }}"
+      status: "{{ nautobot_status }}"
+      u_height: "{{ rack_u_height }}"
+      type: "{{ rack_type }}"
+      width: "{{ rack_width }}"
+    var_name: rack
+  when: (rack_list | length == 0 and create_missing_racks | bool) or rack.id is defined
+
+- name: Fail if rack not found and creation not allowed
+  fail:
+    msg: "Rack {{ device.rack }} not found and create_missing_racks is false"
+  when: rack_list | length == 0 and not create_missing_racks | bool
+
+- set_fact:
+    rack_id: "{{ rack.id }}"

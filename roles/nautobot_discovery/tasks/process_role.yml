@@ -1,0 +1,27 @@
+---
+- include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.device_roles }}"
+    filters:
+      name: "{{ device.device_type }}"
+    var_name: role_list
+
+- name: Set existing role
+  set_fact:
+    role: "{{ role_list[0] if role_list | length > 0 else {} }}"
+
+- name: Create or update role
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.device_roles }}"
+    obj_id: "{{ role.id if role.id is defined }}"
+    body:
+      name: "{{ device.device_type }}"
+      color: ff0000
+      content_types:
+        - dcim.device
+    var_name: role
+  when: role_list | length == 0 or role.id is defined
+
+- set_fact:
+    role_id: "{{ role.id }}"

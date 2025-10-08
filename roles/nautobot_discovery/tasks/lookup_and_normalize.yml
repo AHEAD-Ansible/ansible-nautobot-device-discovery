@@ -1,8 +1,0 @@
----
-- name: Lookup {{ endpoint }}
-  ansible.builtin.set_fact:
-    "{{ var_name }}": "{{ lookup('networktocode.nautobot.lookup', endpoint, api_filter=filter_query ~ additional_filter | default(''), api_endpoint=nautobot_url, token=nautobot_token, raw_data=True, num_retries=3) | default({}) }}"
-
-- name: Normalize {{ endpoint }} lookup
-  ansible.builtin.set_fact:
-    "{{ list_var }}": "{{ [vars[var_name]] if vars[var_name] is mapping else vars[var_name] if vars[var_name] is iterable and not (vars[var_name] is string) else [] }}"

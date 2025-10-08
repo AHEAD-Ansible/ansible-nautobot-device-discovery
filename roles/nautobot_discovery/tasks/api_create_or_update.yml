@@ -1,0 +1,32 @@
+---
+- name: Prepare body with slug if required
+  set_fact:
+    prepared_body: "{{ body | combine({'slug': body[endpoint.slug_from] | lower | replace(' ', '-') }) if endpoint.slug_from else body }}"
+
+- name: Debug prepared body
+  debug:
+    msg: "Prepared body: {{ prepared_body }}"
+  when: debug | default(false)
+
+- name: Create or update object on {{ endpoint.path }}
+  ansible.builtin.uri:
+    url: "{{ api_base_url }}{{ endpoint.path }}{% if obj_id is defined %}{{ obj_id }}/{% endif %}"
+    headers: "{{ api_headers }}"
+    method: "{{ 'PATCH' if obj_id is defined else 'POST' }}"
+    body: "{{ prepared_body | to_json }}"
+    body_format: json
+    validate_certs: "{{ nautobot_validate_certs }}"
+    status_code: "{{ '200,204' if obj_id is defined else '201' }}"
+    return_content: yes
+  register: api_result
+  ignore_errors: "{{ continue_on_error | bool }}"
+
+- name: Debug API result
+  debug:
+    var: api_result
+  when: api_result.failed | default(false)
+
+- name: Set created/updated object
+  set_fact:
+    "{{ var_name }}": "{{ api_result.json if api_result.status in [200, 201, 204] else {} }}"
+  when: api_result.status in [200, 201, 204]

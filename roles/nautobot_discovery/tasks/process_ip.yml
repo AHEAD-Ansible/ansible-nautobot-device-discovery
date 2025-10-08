@@ -1,109 +1,82 @@
 ---
-- name: Parse IP address and prefix
-  ansible.builtin.include_tasks: parse_ip.yml
+- include_tasks: parse_ip.yml
 
-- name: Ensure parent prefix exists
-  include_tasks: process_prefix.yml
-
-- name: Look up IP address in Nautobot
-  ansible.builtin.include_tasks: lookup_and_normalize.yml
+- include_tasks: process_prefix.yml
   vars:
-    endpoint: 'ip-addresses'
-    filter_query: "address={{ ip }} namespace={{ nautobot_namespace }}{% if vrf is defined and vrf != '0' and vrf in vrf_ids %} vrfs={{ vrf_ids[vrf] }}{% endif %}{% if tenant is defined and tenant in tenant_ids %} tenant={{ tenant_ids[tenant] }}{% endif %}"
-    additional_filter: ' depth=1'
-    var_name: ip_lookup
-    list_var: ip_list
+    prefix_vrf: "{{ vrf | default(omit) }}"
+    tenant: "{{ tenant | default(omit) }}"
 
-- name: Debug IP lookup result
-  ansible.builtin.debug:
-    msg: "IP {{ ip }} lookup result: {{ ip_lookup }}"
+- include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.ip_addresses }}"
+    filters:
+      address: "{{ ip }}"
+      namespace: "{{ nautobot_namespace }}"
+      vrf: "{{ vrf_ids[vrf] if vrf is defined and vrf in vrf_ids else omit }}"
+      tenant: "{{ tenant_ids[tenant] if tenant is defined and tenant in tenant_ids else omit }}"
+    var_name: ip_list
+
+- name: Set existing IP
+  set_fact:
+    ip_obj: "{{ ip_list[0] if ip_list | length > 0 else {} }}"
+
+- name: Check for IP conflicts
+  set_fact:
+    bad_interfaces: "{{ ip_obj.interfaces | default([]) | rejectattr('id', 'equalto', interface_id) | map(attribute='id') | list if interface_id is defined else [] }}"
+    has_conflict: "{{ ip_list | length > 0 and bad_interfaces | length > 0 }}"
   when: ip_list | length > 0
 
-- name: Check if IP exists
-  ansible.builtin.set_fact:
-    ip_exists: "{{ ip_list | length > 0 }}"
+- name: Fail on conflict if neither overwrite nor next available allowed
+  fail:
+    msg: "IP {{ ip }} is in use by another interface and neither allow_ip_overwrite nor use_next_available_on_conflict is enabled"
+  when: has_conflict and not (allow_ip_overwrite | bool or use_next_available_on_conflict | bool)
 
-- name: Determine if IP is correctly assigned (has the interface if provided)
-  ansible.builtin.set_fact:
-    ip_correctly_assigned: "{{ ip_exists and (interface_id is not defined or (ip_list[0].interfaces | default([]) | selectattr('id', 'equalto', interface_id) | list | length > 0)) }}"
-  when: ip_exists
-
-- name: Get bad assignments (interfaces other than the current)
-  ansible.builtin.set_fact:
-    bad_interfaces: "{{ ip_list[0].interfaces | default([]) | rejectattr('id', 'equalto', interface_id) | map(attribute='id') | list if interface_id is defined else [] }}"
-  when: ip_exists and interface_id is defined
-
-- name: Check for conflicts (has bad assignments)
-  ansible.builtin.set_fact:
-    has_conflict: "{{ ip_exists and bad_interfaces | default([]) | length > 0 }}"
-
-- name: Fail if conflict and neither overwrite nor next available allowed
-  ansible.builtin.fail:
-    msg: "IP {{ ip }} is in use by another interface in namespace {{ nautobot_namespace }} and neither allow_ip_overwrite nor use_next_available_on_conflict is enabled."
-  when: has_conflict and not (allow_ip_overwrite | bool) and not (use_next_available_on_conflict | bool)
-
-- name: Handle conflict with next available if enabled
+- name: Handle conflict with next available IP
   block:
-    - name: Allocate next available IP from parent prefix
-      networktocode.nautobot.ip_address:
-        url: "{{ nautobot_url }}"
-        token: "{{ nautobot_token }}"
-        parent: "{{ prefix_ids[ip_prefix] if ip_prefix in prefix_ids else omit }}"
-        state: new
-        validate_certs: "{{ nautobot_validate_certs }}"
-        namespace: "{{ nautobot_namespace }}"
-      register: next_ip
-
-    - name: Update IP to next available
-      ansible.builtin.set_fact:
-        ip: "{{ next_ip.ip_address.address }}"
-        ip_obj: "{{ next_ip.ip_address }}"
-
-    - name: Reparse updated IP
-      ansible.builtin.include_tasks: parse_ip.yml
+    - include_tasks: api_next_available_ip.yml
+      vars:
+        parent_prefix_id: "{{ prefix_ids[prefix_vrf|default('') + ':' + ip_prefix] if prefix_vrf is defined and (prefix_vrf + ':' + ip_prefix) in prefix_ids else prefix_ids[ip_prefix] if ip_prefix in prefix_ids else omit }}"
+    - include_tasks: parse_ip.yml
+      vars:
+        ip: "{{ ip_obj.address }}"
   when: has_conflict and use_next_available_on_conflict | bool
 
-- name: Resolve conflicts by unassigning bad interfaces if overwrite allowed
-  networktocode.nautobot.ip_address_to_interface:
-    url: "{{ nautobot_url }}"
-    token: "{{ nautobot_token }}"
-    ip_address: "{{ ip_list[0].id }}"
-    interface: "{{ bad_int }}"
-    state: absent
+- name: Resolve conflict by unassigning bad interfaces
+  ansible.builtin.uri:
+    url: "{{ api_base_url }}/ipam/ip-addresses/{{ ip_obj.id }}/"
+    headers: "{{ api_headers }}"
+    method: PATCH
+    body: "{{ {'interfaces': []} | to_json }}"
+    body_format: json
     validate_certs: "{{ nautobot_validate_certs }}"
-  loop: "{{ bad_interfaces | default([]) }}"
-  loop_control:
-    loop_var: bad_int
+    status_code: 200
   when: has_conflict and allow_ip_overwrite | bool and not use_next_available_on_conflict | bool
+  ignore_errors: "{{ continue_on_error | bool }}"
 
-- name: Create IP if not exists
-  networktocode.nautobot.ip_address:
-    url: "{{ nautobot_url }}"
-    token: "{{ nautobot_token }}"
-    address: "{{ ip }}"
-    parent: "{{ prefix_ids[ip_prefix] if ip_prefix in prefix_ids else omit }}"
-    status: "{{ nautobot_status }}"
-    state: present
-    namespace: "{{ nautobot_namespace }}"
-    tenant: "{{ tenant_ids[tenant] if tenant is defined and tenant in tenant_ids else omit }}"
+- name: Create or update IP
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.ip_addresses }}"
+    obj_id: "{{ ip_obj.id if ip_obj.id is defined }}"
+    body:
+      address: "{{ ip }}"
+      namespace: "{{ nautobot_namespace }}"
+      status: "{{ nautobot_status }}"
+      vrf:
+        id: "{{ vrf_ids[vrf] if vrf is defined and vrf in vrf_ids else omit }}"
+      tenant:
+        id: "{{ tenant_ids[tenant] if tenant is defined and tenant in tenant_ids else omit }}"
+    var_name: ip_obj
+  when: ip_list | length == 0 or (has_conflict and allow_ip_overwrite | bool)
+
+- name: Assign IP to interface
+  ansible.builtin.uri:
+    url: "{{ api_base_url }}/ipam/ip-address-to-interface/"
+    headers: "{{ api_headers }}"
+    method: POST
+    body: "{{ {'ip_address': {'id': ip_obj.id}, 'interface': {'id': interface_id}} | to_json }}"
+    body_format: json
     validate_certs: "{{ nautobot_validate_certs }}"
-    query_params:
-      - namespace
-      - address
-  register: ip_create
-  when: not ip_exists
-  ignore_errors: "{{ continue_on_error | bool }}"  # Optional: Task-level ignore if needed
-
-- name: Set IP object
-  ansible.builtin.set_fact:
-    ip_obj: "{{ ip_create.ip_address if ip_create.changed else ip_list[0] if ip_list | length > 0 else {} }}"
-
-- name: Assign IP to interface if provided
-  networktocode.nautobot.ip_address_to_interface:
-    url: "{{ nautobot_url }}"
-    token: "{{ nautobot_token }}"
-    ip_address: "{{ ip_obj.id }}"
-    interface: "{{ interface_id }}"
-    state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
-  when: ip_obj.id is defined and interface_id is defined and not (ip_correctly_assigned | default(false))
+    status_code: 201, 200
+  when: ip_obj.id is defined and interface_id is defined and (ip_obj.interfaces | default([]) | selectattr('id', 'equalto', interface_id) | list | length == 0)
+  ignore_errors: "{{ continue_on_error | bool }}"

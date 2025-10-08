@@ -1,30 +1,44 @@
 ---
-- name: Ensure interface exists
-  networktocode.nautobot.device_interface:
-    url: "{{ nautobot_url }}"
-    token: "{{ nautobot_token }}"
-    device: "{{ device_id }}"
-    name: "{{ intf.name }}"
-    type: "{{ intf.type }}"
-    enabled: true
-    status: "{{ nautobot_status }}"
-    mode: >-
-      {%- if intf.vlan is defined and intf.vlan in vlan_ids -%}access{%- elif intf.tagged_vlans is defined and intf.tagged_vlans | length > 0 -%}tagged{%- else -%}{{ omit }}{%- endif -%}
-    untagged_vlan: "{{ vlan_ids[intf.vlan] if intf.vlan is defined and intf.vlan in vlan_ids else omit }}"
-    vrf: "{{ vrf_ids[intf.vrf] if intf.vrf is defined and intf.vrf in vrf_ids else omit }}"
-    state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
-    query_params:
-      - device
-      - name
-  register: intf_result
+- include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.interfaces }}"
+    filters:
+      device: "{{ device_id }}"
+      name: "{{ intf.name }}"
+    var_name: interface_list
 
-- name: Process each IP address
-  ansible.builtin.include_tasks: process_ip.yml
+- name: Set existing interface
+  set_fact:
+    interface: "{{ interface_list[0] if interface_list | length > 0 else {} }}"
+
+- name: Create or update interface
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.interfaces }}"
+    obj_id: "{{ interface.id if interface.id is defined }}"
+    body:
+      device:
+        id: "{{ device_id }}"
+      name: "{{ intf.name }}"
+      type: "{{ intf.type }}"
+      enabled: true
+      status: "{{ nautobot_status }}"
+      mode: "{{ 'access' if intf.vlan is defined and intf.vlan in vlan_ids else 'tagged' if intf.tagged_vlans is defined and intf.tagged_vlans | length > 0 else omit }}"
+      untagged_vlan:
+        id: "{{ vlan_ids[intf.vlan] if intf.vlan is defined and intf.vlan in vlan_ids else omit }}"
+      vrf:
+        id: "{{ vrf_ids[intf.vrf] if intf.vrf is defined and intf.vrf in vrf_ids else omit }}"
+    var_name: interface
+  when: interface_list | length == 0 or interface.id is defined
+
+- set_fact:
+    interface_id: "{{ interface.id }}"
+
+- name: Process IP addresses
+  include_tasks: process_ip.yml
   loop: "{{ intf.ip_addresses }}"
   loop_control:
     loop_var: ip
   vars:
-    interface_id: "{{ intf_result.interface.id }}"
     vrf: "{{ intf.vrf | default(omit) }}"
     tenant: "{{ device.tenant | default(omit) }}"

@@ -1,24 +1,26 @@
 ---
-# Lookup tag in Nautobot
-- name: Lookup tag
-  ansible.builtin.set_fact:
-    tag_lookup: "{{ lookup('networktocode.nautobot.lookup', 'tags', api_filter='name=' ~ tag_name, api_endpoint=nautobot_url, token=nautobot_token, validate_certs=nautobot_validate_certs, raw_data=False, num_retries=3) | default([]) }}"
+- include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.tags }}"
+    filters:
+      name: "{{ tag_name }}"
+    var_name: tag_list
 
-# Normalize tag lookup
-- name: Normalize tag lookup
-  ansible.builtin.set_fact:
-    tag_list: "{{ [tag_lookup] if tag_lookup is mapping else tag_lookup if tag_lookup is iterable and not (tag_lookup is string) else [] }}"
+- name: Set existing tag
+  set_fact:
+    tag: "{{ tag_list[0] if tag_list | length > 0 else {} }}"
 
-# Create tag if not exists
-- name: Create tag if not exists
-  networktocode.nautobot.tag:
-    url: "{{ nautobot_url }}"
-    token: "{{ nautobot_token }}"
-    name: "{{ tag_name }}"
-    content_types:
-      - dcim.device
-    state: present
-    validate_certs: "{{ nautobot_validate_certs }}"
-    query_params:
-      - name
-  when: tag_list | length == 0
+- name: Create or update tag
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.tags }}"
+    obj_id: "{{ tag.id if tag.id is defined }}"
+    body:
+      name: "{{ tag_name }}"
+      content_types:
+        - dcim.device
+    var_name: tag
+  when: tag_list | length == 0 or tag.id is defined
+
+- set_fact:
+    tag_ids: "{{ tag_ids | default([]) | append(tag.id) }}"

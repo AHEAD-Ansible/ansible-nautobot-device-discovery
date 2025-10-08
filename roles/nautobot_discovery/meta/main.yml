@@ -3,9 +3,4 @@ galaxy_info:
   author: Brian Nelson
   description: Upload device facts to Nautobot
   license: MIT
-
 dependencies: []
-
-collections:
-  - networktocode.nautobot
-  - ansible.netcommon

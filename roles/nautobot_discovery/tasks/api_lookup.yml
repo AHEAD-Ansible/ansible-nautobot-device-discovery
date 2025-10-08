@@ -1,0 +1,36 @@
+---
+- name: Construct query string from filters
+  set_fact:
+    query_string: "{{ filters | dict2items | map(attribute='value') | zip(filters | dict2items | map(attribute='key')) | map('join', '=') | join('&') }}"
+  when: filters is defined and filters | length > 0
+
+- name: Debug filters and query string
+  debug:
+    msg: "Filters: {{ filters }}, Query String: {{ query_string }}"
+  when: filters is defined
+
+- name: Perform API lookup on {{ endpoint.path }}
+  ansible.builtin.uri:
+    url: "{{ api_base_url }}{{ endpoint.path }}{% if query_string is defined %}?{{ query_string }}{% endif %}"
+    headers: "{{ api_headers }}"
+    method: GET
+    validate_certs: "{{ nautobot_validate_certs }}"
+    return_content: yes
+    status_code: 200
+  register: api_result
+  ignore_errors: "{{ continue_on_error | bool }}"
+
+- name: Fail on invalid filter field
+  fail:
+    msg: "Invalid filter field in query: {{ api_result.json | default({}) }}"
+  when: api_result.status == 400 and api_result.json is defined
+  ignore_errors: "{{ continue_on_error | bool }}"
+
+- name: Debug API result
+  debug:
+    var: api_result
+  when: api_result.failed | default(false)
+
+- name: Set lookup results as list
+  set_fact:
+    "{{ var_name }}": "{{ api_result.json.results | default([]) if api_result.status == 200 else [] }}"

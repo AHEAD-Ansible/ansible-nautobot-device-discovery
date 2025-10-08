@@ -1,0 +1,26 @@
+---
+- include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.platforms }}"
+    filters:
+      name: "{{ device.platform | default('Unknown') }}"
+    var_name: platform_list
+
+- name: Set existing platform
+  set_fact:
+    platform: "{{ platform_list[0] if platform_list | length > 0 else {} }}"
+
+- name: Create or update platform
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.platforms }}"
+    obj_id: "{{ platform.id if platform.id is defined }}"
+    body:
+      name: "{{ device.platform | default('Unknown') }}"
+      manufacturer:
+        id: "{{ manufacturer_id }}"
+    var_name: platform
+  when: (platform_list | length == 0 or platform.id is defined) and manufacturer_id is defined
+
+- set_fact:
+    platform_id: "{{ platform.id | default(omit) }}"

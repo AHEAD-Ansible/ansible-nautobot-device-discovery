@@ -1,0 +1,33 @@
+---
+- include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.software_versions }}"
+    filters:
+      version: "{{ device.software_version }}"
+      platform: "{{ platform_id }}"
+    var_name: software_list
+
+- name: Set existing software version
+  set_fact:
+    software_version: "{{ software_list[0] if software_list | length > 0 else {} }}"
+
+- name: Create or update software version
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.software_versions }}"
+    obj_id: "{{ software_version.id if software_version.id is defined }}"
+    body:
+      version: "{{ device.software_version }}"
+      platform:
+        id: "{{ platform_id }}"
+      status: "{{ nautobot_status }}"
+    var_name: software_version
+  when: (software_list | length == 0 and create_missing_software_versions | bool) or software_version.id is defined
+
+- name: Fail if software version not found and creation not allowed
+  fail:
+    msg: "Software version {{ device.software_version }} not found and create_missing_software_versions is false"
+  when: software_list | length == 0 and not create_missing_software_versions | bool
+
+- set_fact:
+    software_version_id: "{{ software_version.id | default(omit) }}"

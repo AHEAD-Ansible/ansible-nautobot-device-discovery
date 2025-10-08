@@ -1,0 +1,28 @@
+---
+- include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.device_types }}"
+    filters:
+      model: "{{ device.model }}"
+    var_name: device_type_list
+
+- name: Set existing device type
+  set_fact:
+    device_type: "{{ device_type_list[0] if device_type_list | length > 0 else {} }}"
+
+- name: Create or update device type
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.device_types }}"
+    obj_id: "{{ device_type.id if device_type.id is defined }}"
+    body:
+      model: "{{ device.model }}"
+      manufacturer:
+        id: "{{ manufacturer_id }}"
+      u_height: 1
+      is_full_depth: false
+    var_name: device_type
+  when: device_type_list | length == 0 or device_type.id is defined
+
+- set_fact:
+    device_type_id: "{{ device_type.id }}"
