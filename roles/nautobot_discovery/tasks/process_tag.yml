@@ -23,4 +23,4 @@
   when: tag_list | length == 0 or tag.id is defined
 
 - set_fact:
-    tag_ids: "{{ tag_ids | default([]) | append(tag.id) }}"
+    tag_ids: "{{ tag_ids | default([]) + [tag.id] }}"  # Fixed: Use + for list concatenation
