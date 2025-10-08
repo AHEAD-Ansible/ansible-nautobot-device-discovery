@@ -7,20 +7,20 @@
 - include_tasks: process_platform.yml
 - include_tasks: process_role.yml
 - include_tasks: process_device_type.yml
-#- include_tasks: process_tenant.yml
-#  when: device.tenant is defined
-#- include_tasks: process_software_version.yml
-#  when: device.software_version is defined
-#- include_tasks: process_location.yml
-#  when: device.location is defined
-#- include_tasks: process_rack.yml
-#  when: device.rack is defined
+- include_tasks: process_tenant.yml
+  when: device.tenant is defined
+- include_tasks: process_software_version.yml
+  when: device.software_version is defined
+- include_tasks: process_location.yml
+  when: device.location is defined
+- include_tasks: process_rack.yml
+  when: device.rack is defined
 #- include_tasks: process_tag.yml
 #  loop: "{{ device.tags | default([]) | unique }}"
 #  loop_control:
 #    loop_var: tag_name
 #  when: device.tags | length > 0
-#
+
 #- name: Collect unique VRFs
 #  set_fact:
 #    unique_vrfs: "{{ (device.interfaces | default([]) | map(attribute='vrf') | select('defined') | unique + device.vrfs | default([])) | unique | select('defined') | list }}"
