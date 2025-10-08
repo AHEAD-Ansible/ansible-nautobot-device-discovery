@@ -6,7 +6,7 @@
 - include_tasks: process_manufacturer.yml
 - include_tasks: process_platform.yml
 - include_tasks: process_role.yml
-#- include_tasks: process_device_type.yml
+- include_tasks: process_device_type.yml
 #- include_tasks: process_tenant.yml
 #  when: device.tenant is defined
 #- include_tasks: process_software_version.yml
