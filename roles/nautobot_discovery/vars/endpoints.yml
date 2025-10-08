@@ -1,5 +1,5 @@
 ---
-api_base_url: "{{ nautobot_url | regex_replace('/+$', '') }}/api"  # Strip trailing slashes
+api_base_url: "{{ nautobot_url | regex_replace('/+$', '') }}/api"
 api_headers:
   Authorization: "Token {{ nautobot_token }}"
   Content-Type: application/json
@@ -15,8 +15,8 @@ endpoints:
     required_fields: [name, manufacturer]
     slug_from: name
   device_roles:
-    path: /dcim/device-roles/
-    required_fields: [name, color]
+    path: /extras/roles/
+    required_fields: [name, color, content_types]
     slug_from: name
   device_types:
     path: /dcim/device-types/

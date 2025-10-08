@@ -1,17 +1,36 @@
 ---
-- name: Construct query string from filters
-  set_fact:
-    query_string: "{{ filters | dict2items | map(attribute='value') | zip(filters | dict2items | map(attribute='key')) | map('join', '=') | join('&') }}"
-  when: filters is defined and filters | length > 0
+# roles/nautobot_discovery/tasks/api_lookup.yml
 
-- name: Debug filters and query string
-  debug:
-    msg: "Filters: {{ filters }}, Query String: {{ query_string }}"
-  when: filters is defined
+- name: Build cleaned filters dict
+  set_fact:
+    cleaned_filters: >-
+      {{ (filters | default({}))
+         | dict2items
+         | rejectattr('value', 'equalto', omit)
+         | rejectattr('value', 'equalto', none)
+         | items2dict(key_name='key', value_name='value') }}
+
+- name: Initialize query params list
+  set_fact:
+    query_params: []
+
+- name: Flatten query parameters (handle strings, lists, etc.)
+  set_fact:
+    query_params: "{{ query_params + new_params }}"
+  loop: "{{ cleaned_filters | dict2items }}"
+  vars:
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+    is_list: "{{ value is sequence and not value is string }}"
+    new_params: "{{ [key ~ '=' ~ (value | string | urlencode)] if not is_list else (value | map('string') | map('urlencode') | map('regex_replace', '^', key ~ '=') | list) }}"
+
+- name: Build query string
+  set_fact:
+    query_string: "{{ query_params | join('&') }}"
 
 - name: Perform API lookup on {{ endpoint.path }}
   ansible.builtin.uri:
-    url: "{{ api_base_url }}{{ endpoint.path }}{% if query_string is defined %}?{{ query_string }}{% endif %}"
+    url: "{{ api_base_url }}{{ endpoint.path }}{% if query_string %}?{{ query_string }}{% endif %}"
     headers: "{{ api_headers }}"
     method: GET
     validate_certs: "{{ nautobot_validate_certs }}"
@@ -19,17 +38,8 @@
     status_code: 200
   register: api_result
   ignore_errors: "{{ continue_on_error | bool }}"
-
-- name: Fail on invalid filter field
-  fail:
-    msg: "Invalid filter field in query: {{ api_result.json | default({}) }}"
-  when: api_result.status == 400 and api_result.json is defined
-  ignore_errors: "{{ continue_on_error | bool }}"
-
-- name: Debug API result
-  debug:
-    var: api_result
-  when: api_result.failed | default(false)
+  retries: 3
+  delay: 5
 
 - name: Set lookup results as list
   set_fact:

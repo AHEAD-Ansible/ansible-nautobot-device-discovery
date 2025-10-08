@@ -1,32 +1,32 @@
 ---
 - name: Prepare body with slug if required
-  set_fact:
-    prepared_body: "{{ body | combine({'slug': body[endpoint.slug_from] | lower | replace(' ', '-') }) if endpoint.slug_from else body }}"
+  ansible.builtin.set_fact:
+    prepared_body: "{{ body | combine({'slug': body[endpoint.slug_from] | regex_replace('[^a-zA-Z0-9]+', '-') | lower}) if endpoint.slug_from in body else body }}"
 
 - name: Debug prepared body
-  debug:
+  ansible.builtin.debug:
     msg: "Prepared body: {{ prepared_body }}"
   when: debug | default(false)
 
 - name: Create or update object on {{ endpoint.path }}
   ansible.builtin.uri:
-    url: "{{ api_base_url }}{{ endpoint.path }}{% if obj_id is defined %}{{ obj_id }}/{% endif %}"
+    url: "{{ api_base_url }}{{ endpoint.path }}{% if obj_id is defined and obj_id != none %}{{ obj_id }}/{% endif %}"
+    method: "{{ 'PATCH' if obj_id is defined and obj_id != none else 'POST' }}"
     headers: "{{ api_headers }}"
-    method: "{{ 'PATCH' if obj_id is defined else 'POST' }}"
     body: "{{ prepared_body | to_json }}"
     body_format: json
-    validate_certs: "{{ nautobot_validate_certs }}"
-    status_code: "{{ '200,204' if obj_id is defined else '201' }}"
+    validate_certs: "{{ nautobot_validate_certs | default(false) }}"
+    status_code: [200, 201, 204]
     return_content: yes
   register: api_result
-  ignore_errors: "{{ continue_on_error | bool }}"
+  ignore_errors: "{{ continue_on_error | bool | default(false) }}"
 
 - name: Debug API result
-  debug:
+  ansible.builtin.debug:
     var: api_result
   when: api_result.failed | default(false)
 
 - name: Set created/updated object
-  set_fact:
+  ansible.builtin.set_fact:
     "{{ var_name }}": "{{ api_result.json if api_result.status in [200, 201, 204] else {} }}"
   when: api_result.status in [200, 201, 204]

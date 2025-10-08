@@ -4,7 +4,7 @@ default_location_type: "Datacenter"
 create_missing_racks: true
 create_missing_tenants: true
 create_missing_software_versions: true
-continue_on_error: true
+continue_on_error: false
 allow_ip_overwrite: true
 use_next_available_on_conflict: false
 nautobot_namespace: "Global"
