@@ -21,12 +21,16 @@
       namespace: "{{ nautobot_namespace }}"
       status: "{{ nautobot_status }}"
       tenant:
-        id: "{{ tenant_ids[tenant] if tenant is defined and tenant in tenant_ids else omit }}"
+        id: "{{ tenant_ids[tenant] if tenant is defined and tenant in tenant_ids else none }}"
     var_name: prefix
   when: prefix_list | length == 0 or prefix.id is defined
 
+- name: Set prefix key
+  set_fact:
+    prefix_key: "{{ (prefix_vrf | string | default('')) ~ ':' ~ ip_prefix if prefix_vrf is defined and prefix_vrf is not none else ip_prefix }}"
+
 - set_fact:
-    prefix_ids: "{{ prefix_ids | default({}) | combine({(prefix_vrf|default('')) ~ ':' ~ ip_prefix: prefix.id}) if prefix_vrf is defined else prefix_ids | combine({ip_prefix: prefix.id}) }}"
+    prefix_ids: "{{ prefix_ids | default({}) | combine({prefix_key: prefix.id}) }}"
 
 - name: Check existing VRF-prefix assignments
   ansible.builtin.uri:
@@ -37,7 +41,7 @@
     status_code: 200
     return_content: yes
   register: vrf_assignment_check
-  when: prefix_vrf is defined and prefix_vrf in vrf_ids and prefix.id is defined
+  when: prefix_vrf is defined and prefix_vrf is not none and prefix_vrf in vrf_ids and prefix.id is defined
   ignore_errors: "{{ continue_on_error | bool | default(false) }}"
 
 - name: Assign prefix to VRF
@@ -50,5 +54,5 @@
     validate_certs: "{{ nautobot_validate_certs | default(false) }}"
     status_code: 201
     return_content: yes
-  when: prefix_vrf is defined and prefix_vrf in vrf_ids and prefix.id is defined and vrf_assignment_check.json.count == 0
+  when: prefix_vrf is defined and prefix_vrf is not none and prefix_vrf in vrf_ids and prefix.id is defined and vrf_assignment_check.json.count == 0
   ignore_errors: "{{ continue_on_error | bool | default(false) }}"
