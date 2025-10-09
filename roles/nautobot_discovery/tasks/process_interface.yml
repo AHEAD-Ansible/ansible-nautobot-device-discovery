@@ -11,23 +11,39 @@
   set_fact:
     interface: "{{ interface_list[0] if interface_list | length > 0 else {} }}"
 
-- name: Create or update interface
-  include_tasks: api_create_or_update.yml
-  vars:
-    endpoint: "{{ endpoints.interfaces }}"
-    obj_id: "{{ interface.id | default(omit) }}"
-    body:
+- name: Set base interface body
+  set_fact:
+    interface_body:
       device:
         id: "{{ device_id }}"
       name: "{{ intf.name }}"
       type: "{{ intf.type }}"
       enabled: true
       status: "{{ nautobot_status }}"
-      mode: "{{ 'access' if intf.vlan is defined and intf.vlan in vlan_ids else 'tagged' if intf.tagged_vlans is defined and intf.tagged_vlans | length > 0 else omit }}"
-      untagged_vlan:
-        id: "{{ vlan_ids[intf.vlan] if intf.vlan is defined and intf.vlan in vlan_ids else omit }}"
-      vrf:
-        id: "{{ vrf_ids[intf.vrf] if intf.vrf is defined and intf.vrf in vrf_ids else omit }}"
+
+- name: Add mode if applicable
+  set_fact:
+    interface_body: "{{ interface_body | combine({'mode': mode_value}) }}"
+  vars:
+    mode_value: "{{ 'access' if intf.vlan is defined and intf.vlan in vlan_ids else 'tagged' if intf.tagged_vlans is defined and intf.tagged_vlans | length > 0 else '' }}"
+  when: mode_value != ''
+
+- name: Add untagged_vlan if applicable
+  set_fact:
+    interface_body: "{{ interface_body | combine({'untagged_vlan': {'id': vlan_ids[intf.vlan] }}) }}"
+  when: intf.vlan is defined and intf.vlan in vlan_ids
+
+- name: Add vrf if applicable
+  set_fact:
+    interface_body: "{{ interface_body | combine({'vrf': {'id': vrf_ids[intf.vrf] }}) }}"
+  when: intf.vrf is defined and intf.vrf in vrf_ids
+
+- name: Create or update interface
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.interfaces }}"
+    obj_id: "{{ interface.id | default(omit) }}"
+    body: "{{ interface_body }}"
     var_name: interface
   when: interface_list | length == 0 or interface.id is defined
 
@@ -36,7 +52,7 @@
 
 - name: Process IP addresses
   include_tasks: process_ip.yml
-  loop: "{{ intf.ip_addresses }}"
+  loop: "{{ intf.ip_addresses | default([]) }}"
   loop_control:
     loop_var: ip
   vars:

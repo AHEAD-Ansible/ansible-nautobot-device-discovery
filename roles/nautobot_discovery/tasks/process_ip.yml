@@ -4,7 +4,6 @@
 - include_tasks: process_prefix.yml
   vars:
     prefix_vrf: "{{ vrf | default(omit) }}"
-    tenant: "{{ tenant | default(omit) }}"
 
 - include_tasks: api_lookup.yml
   vars:
@@ -12,18 +11,24 @@
     filters:
       address: "{{ ip }}"
       namespace: "{{ nautobot_namespace }}"
-      vrf: "{{ vrf_ids[vrf] if vrf is defined and vrf in vrf_ids else omit }}"
-      tenant: "{{ tenant_ids[tenant] if tenant is defined and tenant in tenant_ids else omit }}"
     var_name: ip_list
 
 - name: Set existing IP
   set_fact:
     ip_obj: "{{ ip_list[0] if ip_list | length > 0 else {} }}"
 
-- name: Check for IP conflicts
+- name: Set default conflict flag
+  set_fact:
+    has_conflict: false
+
+- name: Calculate bad_interfaces
   set_fact:
     bad_interfaces: "{{ ip_obj.interfaces | default([]) | rejectattr('id', 'equalto', interface_id) | map(attribute='id') | list if interface_id is defined else [] }}"
-    has_conflict: "{{ ip_list | length > 0 and bad_interfaces | length > 0 }}"
+  when: ip_list | length > 0
+
+- name: Check for IP conflicts
+  set_fact:
+    has_conflict: "{{ bad_interfaces | length > 0 }}"
   when: ip_list | length > 0
 
 - name: Fail on conflict if neither overwrite nor next available allowed
@@ -62,8 +67,6 @@
       address: "{{ ip }}"
       namespace: "{{ nautobot_namespace }}"
       status: "{{ nautobot_status }}"
-      vrf:
-        id: "{{ vrf_ids[vrf] if vrf is defined and vrf in vrf_ids else omit }}"
       tenant:
         id: "{{ tenant_ids[tenant] if tenant is defined and tenant in tenant_ids else omit }}"
     var_name: ip_obj
