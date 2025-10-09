@@ -57,7 +57,7 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.ip_addresses }}"
-    obj_id: "{{ ip_obj.id if ip_obj.id is defined }}"
+    obj_id: "{{ ip_obj.id | default(omit) }}"
     body:
       address: "{{ ip }}"
       namespace: "{{ nautobot_namespace }}"

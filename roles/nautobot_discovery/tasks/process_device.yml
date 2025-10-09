@@ -83,19 +83,19 @@
     loop_var: vrf_name
   when: unique_vrfs | length > 0 and device_id is defined
 
-#- include_tasks: process_vlan.yml
-#  loop: "{{ device.vlans | default([]) | unique }}"
-#  loop_control:
-#    loop_var: vlan_name
-#    label: "{{ vlan_name }}"
-#  when: device.vlans | length > 0 and device_id is defined
-#
-#- include_tasks: process_interface.yml
-#  loop: "{{ device.interfaces | default([]) }}"
-#  loop_control:
-#    loop_var: intf
-#  when: device.interfaces | length > 0 and device_id is defined
-#
+- include_tasks: process_vlan.yml
+  loop: "{{ device.vlans | default([]) | unique }}"
+  loop_control:
+    loop_var: vlan_name
+    label: "{{ vlan_name }}"
+  when: device.vlans | length > 0 and device_id is defined
+
+- include_tasks: process_interface.yml
+  loop: "{{ device.interfaces | default([]) }}"
+  loop_control:
+    loop_var: intf
+  when: device.interfaces | length > 0 and device_id is defined
+
 #- name: Process primary IP
 #  include_tasks: process_ip.yml
 #  vars:

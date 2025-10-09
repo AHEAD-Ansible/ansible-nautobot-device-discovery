@@ -15,7 +15,7 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.vlans }}"
-    obj_id: "{{ vlan_obj.id if vlan_obj.id is defined }}"
+    obj_id: "{{ vlan_obj.id | default(omit) }}"
     body:
       name: "{{ vlan_name }}"
       vid: "{{ 1 }}"  # Fixed: Default to 1 since no vid/tag provided in input; adjust as needed for real vids

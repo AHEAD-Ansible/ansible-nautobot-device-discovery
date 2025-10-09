@@ -16,7 +16,7 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.prefixes }}"
-    obj_id: "{{ prefix.id if prefix.id is defined }}"
+    obj_id: "{{ prefix.id | default(omit) }}"
     body:
       prefix: "{{ ip_prefix }}"
       namespace: "{{ nautobot_namespace }}"
