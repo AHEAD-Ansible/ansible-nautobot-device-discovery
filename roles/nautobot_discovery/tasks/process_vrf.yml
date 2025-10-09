@@ -1,9 +1,32 @@
 ---
 - include_tasks: api_lookup.yml
   vars:
+    endpoint: "{{ endpoints.namespaces }}"
+    filters:
+      name: "{{ nautobot_namespace }}"
+    var_name: namespace_list
+
+- name: Set namespace
+  set_fact:
+    namespace: "{{ namespace_list[0] if namespace_list | length > 0 else {} }}"
+
+- name: Create namespace if not found
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.namespaces }}"
+    obj_id: omit
+    body:
+      name: "{{ nautobot_namespace }}"
+      description: ""
+    var_name: namespace
+  when: namespace_list | length == 0
+
+- include_tasks: api_lookup.yml
+  vars:
     endpoint: "{{ endpoints.vrfs }}"
     filters:
-      name: "{{ vrf_name }}"
+      rd: "{{ vrf_name }}"
+      namespace: "{{ namespace.id }}"
     var_name: vrf_list
 
 - name: Set existing VRF
@@ -18,13 +41,14 @@
     body:
       name: "{{ vrf_name }}"
       rd: "{{ vrf_name }}"
-      slug: "{{ vrf_name | slugify }}"
+      namespace:
+        id: "{{ namespace.id }}"
     var_name: vrf
   when: vrf_list | length == 0 or vrf.id is defined
 
 - name: Check existing VRF-device assignments
   ansible.builtin.uri:
-    url: "{{ api_base_url }}/ipam/vrf-device-assignments/?vrf_id={{ vrf.id }}&device_id={{ device_id }}"
+    url: "{{ api_base_url }}/ipam/vrf-device-assignments/?vrf={{ vrf.id }}&device={{ device_id }}"
     headers: "{{ api_headers }}"
     method: GET
     body_format: json

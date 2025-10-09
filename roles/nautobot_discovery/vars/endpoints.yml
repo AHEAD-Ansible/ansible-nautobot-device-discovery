@@ -1,4 +1,3 @@
----
 api_base_url: "{{ nautobot_url | regex_replace('/+$', '') }}/api"
 api_headers:
   Authorization: "Token {{ nautobot_token }}"
@@ -6,6 +5,10 @@ api_headers:
   Accept: application/json
 
 endpoints:
+  namespaces:
+    path: /ipam/namespaces/
+    required_fields: [name]
+    slug_from: null
   manufacturers:
     path: /dcim/manufacturers/
     required_fields: [name]

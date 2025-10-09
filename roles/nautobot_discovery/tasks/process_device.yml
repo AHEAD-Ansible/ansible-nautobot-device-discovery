@@ -72,17 +72,17 @@
   set_fact:
     device_id: "{{ device_obj.id }}"
 
-#
-#- name: Collect unique VRFs
-#  set_fact:
-#    unique_vrfs: "{{ (device.interfaces | default([]) | map(attribute='vrf') | select('defined') | unique + device.vrfs | default([])) | unique | select('defined') | list }}"
-#
-#- include_tasks: process_vrf.yml
-#  loop: "{{ unique_vrfs }}"
-#  loop_control:
-#    loop_var: vrf_name
-#  when: unique_vrfs | length > 0 and device_id is defined
-#
+
+- name: Collect unique VRFs
+  set_fact:
+    unique_vrfs: "{{ (device.interfaces | default([]) | map(attribute='vrf') | select('defined') | unique + device.vrfs | default([])) | unique | select('defined') | list }}"
+
+- include_tasks: process_vrf.yml
+  loop: "{{ unique_vrfs }}"
+  loop_control:
+    loop_var: vrf_name
+  when: unique_vrfs | length > 0 and device_id is defined
+
 #- include_tasks: process_vlan.yml
 #  loop: "{{ device.vlans | default([]) | unique }}"
 #  loop_control:
