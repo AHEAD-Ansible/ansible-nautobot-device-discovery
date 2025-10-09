@@ -105,13 +105,13 @@
     vrf_name: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).vrf | default(omit) }}"
     tenant: "{{ device.tenant | default(omit) }}"
   when: device.primary_ip4 is defined and device_id is defined
-#
-#- name: Update device with primary IP
-#  include_tasks: api_create_or_update.yml
-#  vars:
-#    endpoint: "{{ endpoints.devices }}"
-#    obj_id: "{{ device_id }}"
-#    body:
-#      primary_ip4: { "id": "{{ ip_obj.id | default(omit) }}" }
-#    var_name: device_obj
-#  when: device.primary_ip4 is defined and ip_obj.id is defined and device_id is defined
+
+- name: Update device with primary IP
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.devices }}"
+    obj_id: "{{ device_id }}"
+    body:
+      primary_ip4: { "id": "{{ ip_obj.id | default(omit) }}" }
+    var_name: device_obj
+  when: device.primary_ip4 is defined and ip_obj.id is defined and device_id is defined
