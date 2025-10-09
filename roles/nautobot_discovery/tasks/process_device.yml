@@ -96,15 +96,15 @@
     loop_var: intf
   when: device.interfaces | length > 0 and device_id is defined
 
-#- name: Process primary IP
-#  include_tasks: process_ip.yml
-#  vars:
-#    ip: "{{ device.primary_ip4 }}"
-#    interface_name: "mgmt"
-#    interface_id: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).id | default(omit) if device.primary_ip4 in (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).ip_addresses | default([]) else omit }}"
-#    vrf_name: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).vrf | default(omit) }}"
-#    tenant: "{{ device.tenant | default(omit) }}"
-#  when: device.primary_ip4 is defined and device_id is defined
+- name: Process primary IP
+  include_tasks: process_ip.yml
+  vars:
+    ip: "{{ device.primary_ip4 }}"
+    interface_name: "mgmt"
+    interface_id: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).id | default(omit) if device.primary_ip4 in (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).ip_addresses | default([]) else omit }}"
+    vrf_name: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).vrf | default(omit) }}"
+    tenant: "{{ device.tenant | default(omit) }}"
+  when: device.primary_ip4 is defined and device_id is defined
 #
 #- name: Update device with primary IP
 #  include_tasks: api_create_or_update.yml

@@ -3,7 +3,7 @@
 
 - include_tasks: process_prefix.yml
   vars:
-    prefix_vrf: "{{ vrf | default(omit) }}"
+    prefix_vrf: "{{ vrf | default(none) }}"
 
 - include_tasks: api_lookup.yml
   vars:
@@ -40,35 +40,72 @@
   block:
     - include_tasks: api_next_available_ip.yml
       vars:
-        parent_prefix_id: "{{ prefix_ids[prefix_vrf|default('') + ':' + ip_prefix] if prefix_vrf is defined and (prefix_vrf + ':' + ip_prefix) in prefix_ids else prefix_ids[ip_prefix] if ip_prefix in prefix_ids else omit }}"
+        parent_prefix_id: "{{ prefix_ids[prefix_vrf ~ ':' ~ ip_prefix] if prefix_vrf is not none and (prefix_vrf ~ ':' ~ ip_prefix) in prefix_ids else prefix_ids[ip_prefix] if ip_prefix in prefix_ids else none }}"
     - include_tasks: parse_ip.yml
       vars:
         ip: "{{ ip_obj.address }}"
   when: has_conflict and use_next_available_on_conflict | bool
 
 - name: Resolve conflict by unassigning bad interfaces
-  ansible.builtin.uri:
-    url: "{{ api_base_url }}/ipam/ip-addresses/{{ ip_obj.id }}/"
-    headers: "{{ api_headers }}"
-    method: PATCH
-    body: "{{ {'interfaces': []} | to_json }}"
-    body_format: json
-    validate_certs: "{{ nautobot_validate_certs }}"
-    status_code: 200
+  block:
+    - name: Get assignments for bad interfaces
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/ipam/ip-address-to-interface/?ip_address={{ ip_obj.id }}&interface={{ bad_intf }}"
+        headers: "{{ api_headers }}"
+        method: GET
+        validate_certs: "{{ nautobot_validate_certs }}"
+        return_content: yes
+        status_code: 200
+      register: assign_results
+      loop: "{{ bad_interfaces }}"
+      loop_control:
+        loop_var: bad_intf
+
+    - name: Delete bad assignments
+      ansible.builtin.uri:
+        url: "{{ api_base_url }}/ipam/ip-address-to-interface/{{ item.json.results[0].id }}/"
+        headers: "{{ api_headers }}"
+        method: DELETE
+        validate_certs: "{{ nautobot_validate_certs }}"
+        status_code: 204
+      loop: "{{ assign_results.results }}"
+      when: item.json.count > 0
   when: has_conflict and allow_ip_overwrite | bool and not use_next_available_on_conflict | bool
   ignore_errors: "{{ continue_on_error | bool }}"
+
+- name: Refresh IP object after unassignment
+  include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.ip_addresses }}"
+    filters:
+      address: "{{ ip }}"
+      namespace: "{{ nautobot_namespace }}"
+    var_name: refreshed_ip_list
+  when: has_conflict and allow_ip_overwrite | bool and not use_next_available_on_conflict | bool
+
+- name: Update ip_obj after refresh
+  set_fact:
+    ip_obj: "{{ refreshed_ip_list[0] if refreshed_ip_list | length > 0 else ip_obj }}"
+  when: has_conflict and allow_ip_overwrite | bool and not use_next_available_on_conflict | bool
+
+- name: Set base IP body
+  set_fact:
+    ip_body:
+      address: "{{ ip }}"
+      namespace: "{{ nautobot_namespace }}"
+      status: "{{ nautobot_status }}"
+
+- name: Add tenant if applicable
+  set_fact:
+    ip_body: "{{ ip_body | combine({'tenant': {'id': tenant_ids[tenant]}}) }}"
+  when: tenant is not none and tenant in tenant_ids
 
 - name: Create or update IP
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.ip_addresses }}"
     obj_id: "{{ ip_obj.id | default(omit) }}"
-    body:
-      address: "{{ ip }}"
-      namespace: "{{ nautobot_namespace }}"
-      status: "{{ nautobot_status }}"
-      tenant:
-        id: "{{ tenant_ids[tenant] if tenant is defined and tenant in tenant_ids else omit }}"
+    body: "{{ ip_body }}"
     var_name: ip_obj
   when: ip_list | length == 0 or (has_conflict and allow_ip_overwrite | bool)
 
@@ -81,5 +118,5 @@
     body_format: json
     validate_certs: "{{ nautobot_validate_certs }}"
     status_code: 201, 200
-  when: ip_obj.id is defined and interface_id is defined and (ip_obj.interfaces | default([]) | selectattr('id', 'equalto', interface_id) | list | length == 0)
+  when: ip_obj.id is defined and interface_id is defined and ip_obj.id is not none and interface_id is not none and ip_obj.id != omit and interface_id != omit and (ip_obj.interfaces | default([]) | selectattr('id', 'equalto', interface_id) | list | length == 0)
   ignore_errors: "{{ continue_on_error | bool }}"
