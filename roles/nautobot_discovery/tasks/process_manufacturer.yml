@@ -24,10 +24,9 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.manufacturers }}"
-    obj_id: "{{ manufacturer.id if manufacturer.id is defined }}"
+    obj_id: "{{ manufacturer.id | default(omit) }}"
     body:
       name: "{{ device.vendor | default('Unknown') }}"
-      slug: "{{ (device.vendor | default('Unknown') | lower | replace(' ', '-')) }}"
     var_name: manufacturer
   when: manufacturer_list | length == 0 or manufacturer.id is defined
 

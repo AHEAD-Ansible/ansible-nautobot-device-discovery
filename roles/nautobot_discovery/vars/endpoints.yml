@@ -49,11 +49,11 @@ endpoints:
   devices:
     path: /dcim/devices/
     required_fields: [name, device_type, role, location, status, serial]
-    slug_from: name
+    slug_from: null
   interfaces:
     path: /dcim/interfaces/
     required_fields: [device, name, type, enabled, status]
-    slug_from: name
+    slug_from: null
   ip_addresses:
     path: /ipam/ip-addresses/
     required_fields: [address, status, namespace]
@@ -69,7 +69,7 @@ endpoints:
   vlans:
     path: /ipam/vlans/
     required_fields: [name, vid, location, status]
-    slug_from: name
+    slug_from: null
   static_routes:
     path: /ipam/static-routes/
     required_fields: [device, destination, next_hops, status]

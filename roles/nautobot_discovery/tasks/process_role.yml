@@ -20,7 +20,6 @@
   ansible.builtin.set_fact:
     role_body:
       name: "{{ device.role_name | default(device.device_type | default('Load Balancer')) }}"
-      slug: "{{ (device.role_name | default(device.device_type | default('Load Balancer')) | regex_replace('[^a-zA-Z0-9]+', '-') | lower) }}"
       color: "{{ device.role_color | default('ff0000') }}"
       content_types:
         - dcim.device
@@ -31,7 +30,7 @@
   ansible.builtin.include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.device_roles }}"
-    obj_id: "{{ role.id | default(none) }}"
+    obj_id: "{{ role.id | default(omit) }}"
     body: "{{ role_body }}"
     var_name: role
   when: create_missing_roles | default(true)

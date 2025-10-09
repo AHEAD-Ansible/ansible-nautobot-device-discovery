@@ -14,12 +14,25 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.vrfs }}"
-    obj_id: "{{ vrf.id if vrf.id is defined }}"
+    obj_id: "{{ vrf.id | default(omit) }}"
     body:
       name: "{{ vrf_name }}"
       rd: "{{ vrf_name }}"
+      slug: "{{ vrf_name | slugify }}"
     var_name: vrf
   when: vrf_list | length == 0 or vrf.id is defined
+
+- name: Check existing VRF-device assignments
+  ansible.builtin.uri:
+    url: "{{ api_base_url }}/ipam/vrf-device-assignments/?vrf_id={{ vrf.id }}&device_id={{ device_id }}"
+    headers: "{{ api_headers }}"
+    method: GET
+    body_format: json
+    validate_certs: "{{ nautobot_validate_certs | default(false) }}"
+    status_code: 200
+    return_content: yes
+  register: vrf_assignment_check
+  when: vrf.id is defined and device_id is defined
 
 - name: Assign VRF to device
   ansible.builtin.uri:
@@ -28,10 +41,13 @@
     method: POST
     body: "{{ {'vrf': {'id': vrf.id}, 'device': {'id': device_id}} | to_json }}"
     body_format: json
-    validate_certs: "{{ nautobot_validate_certs }}"
-    status_code: 201, 200
-  when: vrf.id is defined
-  ignore_errors: "{{ continue_on_error | bool }}"
+    validate_certs: "{{ nautobot_validate_certs | default(false) }}"
+    status_code: 201
+    return_content: yes
+  when: vrf.id is defined and device_id is defined and vrf_assignment_check.json.count == 0
+  ignore_errors: "{{ continue_on_error | bool | default(false) }}"
 
-- set_fact:
+- name: Update VRF IDs fact
+  set_fact:
     vrf_ids: "{{ vrf_ids | default({}) | combine({vrf_name: vrf.id}) }}"
+  when: vrf.id is defined

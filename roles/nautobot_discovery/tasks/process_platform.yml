@@ -1,9 +1,4 @@
 ---
-- name: Debug input variables
-  debug:
-    msg: "Processing platform: name={{ device.platform | default('Unknown') }}, manufacturer_id={{ manufacturer_id }}, endpoint={{ endpoints.platforms }}"
-  when: debug | default(false)
-
 - include_tasks: api_lookup.yml
   vars:
     endpoint: "{{ endpoints.platforms }}"
@@ -16,21 +11,15 @@
   set_fact:
     platform: "{{ platform_list[0] if platform_list | length > 0 else {} }}"
 
-- name: Debug platform lookup result
-  debug:
-    msg: "Platform lookup result: {{ platform }}"
-  when: debug | default(false)
-
 - name: Create or update platform
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.platforms }}"
-    obj_id: "{{ platform.id if platform.id is defined }}"
+    obj_id: "{{ platform.id | default(omit) }}"
     body:
       name: "{{ device.platform | default('Unknown') }}"
       manufacturer:
         id: "{{ manufacturer_id }}"
-      slug: "{{ (device.platform | default('Unknown') | lower | replace(' ', '-')) }}"
     var_name: platform
   when: (platform_list | length == 0 or platform.id is defined) and manufacturer_id is defined
 
@@ -52,11 +41,6 @@
         platform: "{{ retry_result.json.results[0] if retry_result.json.results | length > 0 else {} }}"
       when: retry_result.status == 200
   when: api_result.status == 400 and api_result.json is defined and 'name' in api_result.json and 'already exists' in api_result.json.name[0]
-
-- name: Debug platform after retry
-  debug:
-    msg: "Platform after retry: {{ platform }}"
-  when: debug | default(false)
 
 - name: Set platform ID
   set_fact:

@@ -15,7 +15,7 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.racks }}"
-    obj_id: "{{ rack.id if rack.id is defined }}"
+    obj_id: "{{ rack.id | default(omit) }}"
     body:
       name: "{{ device.rack }}"
       location:

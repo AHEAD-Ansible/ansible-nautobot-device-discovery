@@ -14,7 +14,7 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.tags }}"
-    obj_id: "{{ tag.id if tag.id is defined }}"
+    obj_id: "{{ tag.id | default(omit) }}"
     body:
       name: "{{ tag_name }}"
       content_types:
@@ -23,4 +23,4 @@
   when: tag_list | length == 0 or tag.id is defined
 
 - set_fact:
-    tag_ids: "{{ tag_ids | default([]) + [tag.id] }}"  # Fixed: Use + for list concatenation
+    tag_ids: "{{ tag_ids | default([]) + [tag.id] }}"

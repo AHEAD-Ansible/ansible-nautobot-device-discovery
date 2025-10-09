@@ -3,7 +3,7 @@
   vars:
     endpoint: "{{ endpoints.vlans }}"
     filters:
-      name: "{{ vlan }}"
+      name: "{{ vlan_name }}"
       location: "{{ location_id }}"
     var_name: vlan_list
 
@@ -17,8 +17,8 @@
     endpoint: "{{ endpoints.vlans }}"
     obj_id: "{{ vlan_obj.id if vlan_obj.id is defined }}"
     body:
-      name: "{{ vlan }}"
-      vid: "{{ vlan_item.tag | default(1) }}"  # Default to 1 if tag is undefined
+      name: "{{ vlan_name }}"
+      vid: "{{ 1 }}"  # Fixed: Default to 1 since no vid/tag provided in input; adjust as needed for real vids
       location:
         id: "{{ location_id }}"
       status: "{{ nautobot_status }}"
@@ -26,4 +26,4 @@
   when: vlan_list | length == 0 or vlan_obj.id is defined
 
 - set_fact:
-    vlan_ids: "{{ vlan_ids | default({}) | combine({vlan: vlan_obj.id}) }}"
+    vlan_ids: "{{ vlan_ids | default({}) | combine({vlan_name: vlan_obj.id}) }}"

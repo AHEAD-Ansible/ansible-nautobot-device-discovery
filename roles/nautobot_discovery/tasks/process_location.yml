@@ -14,7 +14,7 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.location_types }}"
-    obj_id: "{{ location_type.id if location_type.id is defined }}"
+    obj_id: "{{ location_type.id | default(omit) }}"
     body:
       name: "{{ default_location_type }}"
       content_types:
@@ -43,7 +43,7 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.locations }}"
-    obj_id: "{{ location.id if location.id is defined }}"
+    obj_id: "{{ location.id | default(omit) }}"
     body:
       name: "{{ device.location }}"
       location_type:

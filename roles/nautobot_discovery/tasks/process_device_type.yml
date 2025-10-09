@@ -14,7 +14,7 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.device_types }}"
-    obj_id: "{{ device_type.id if device_type.id is defined }}"
+    obj_id: "{{ device_type.id | default(omit) }}"
     body:
       model: "{{ device.model }}"
       manufacturer:

@@ -15,7 +15,7 @@
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.software_versions }}"
-    obj_id: "{{ software_version.id if software_version.id is defined }}"
+    obj_id: "{{ software_version.id | default(omit) }}"
     body:
       version: "{{ device.software_version }}"
       platform:

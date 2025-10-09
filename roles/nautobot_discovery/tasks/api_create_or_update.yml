@@ -10,8 +10,8 @@
 
 - name: Create or update object on {{ endpoint.path }}
   ansible.builtin.uri:
-    url: "{{ api_base_url }}{{ endpoint.path }}{% if obj_id is defined and obj_id != none %}{{ obj_id }}/{% endif %}"
-    method: "{{ 'PATCH' if obj_id is defined and obj_id != none else 'POST' }}"
+    url: "{{ api_base_url }}{{ endpoint.path }}{% if obj_id != omit %}{{ obj_id }}/{% endif %}"
+    method: "{{ 'PATCH' if obj_id != omit else 'POST' }}"
     headers: "{{ api_headers }}"
     body: "{{ prepared_body | to_json }}"
     body_format: json

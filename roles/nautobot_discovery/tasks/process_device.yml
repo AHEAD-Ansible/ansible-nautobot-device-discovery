@@ -15,6 +15,7 @@
   when: device.location is defined
 - include_tasks: process_rack.yml
   when: device.rack is defined
+
 - name: Reset tag_ids for this device
   set_fact:
     tag_ids: []
@@ -26,87 +27,84 @@
     loop_var: tag_name
   when: device.tags | length > 0
 
-- name: Collect unique VRFs
+- name: Lookup existing device
+  include_tasks: api_lookup.yml
+  vars:
+    endpoint: "{{ endpoints.devices }}"
+    filters:
+      serial: "{{ device.serial_number }}"
+      name: "{{ device.name }}"
+    var_name: device_list
+
+- name: Set existing device
   set_fact:
-    unique_vrfs: "{{ (device.interfaces | default([]) | map(attribute='vrf') | select('defined') | unique + device.vrfs | default([])) | unique | select('defined') | list }}"
+    device_obj: "{{ device_list[0] if device_list | length > 0 else {} }}"
 
-- include_tasks: process_vrf.yml
-  loop: "{{ unique_vrfs }}"
-  loop_control:
-    loop_var: vrf_name
-  when: unique_vrfs | length > 0
+- name: Set tags list
+  set_fact:
+    tags_list: "{{ tag_ids | default([]) | map('regex_replace', '^(.*)$', '{\"id\": \"\\1\"}') | map('from_json') | list }}"
 
-#- include_tasks: process_vlan.yml
-#  loop: "{{ device.vlans | default([]) }}"
-#  loop_control:
-#    loop_var: vlan
-#    label: "{{ vlan }}"
-#  vars:
-#    vlan_item: "{{ {'tag': 1} }}"  # Simplified, as ansible_net_vlans may not exist
-#    location_id: "{{ location_id }}"
-#  when: device.vlans | length > 0
+- name: Create or update device
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.devices }}"
+    obj_id: "{{ device_obj.id | default(omit) }}"
+    body:
+      name: "{{ device.name }}"
+      serial: "{{ device.serial_number }}"
+      device_type: { "id": "{{ device_type.id }}" }
+      role: { "id": "{{ role.id }}" }
+      platform: { "id": "{{ platform.id }}" }
+      location: { "id": "{{ location.id | default(omit) }}" }
+      status: "{{ device.status | default(nautobot_status) }}"
+      custom_fields: "{{ device.custom_fields | default({}) }}"
+      tags: "{{ tags_list }}"
+      asset_tag: "{{ device.asset_tag | default(omit) }}"
+      rack: { "id": "{{ rack.id | default(omit) }}" }
+      position: "{{ device.position | default(omit) }}"
+      face: "{{ device.face | default(omit) }}"
+      tenant: { "id": "{{ tenant.id | default(omit) }}" }
+      software_version: { "id": "{{ software_version.id | default(omit) }}" }
+      comments: "{{ device.comments | default('') }}"
+    var_name: device_obj
+
+- name: Set device_id
+  set_fact:
+    device_id: "{{ device_obj.id }}"
+
 #
-#- include_tasks: api_lookup.yml
-#  vars:
-#    endpoint: "{{ endpoints.devices }}"
-#    filters:
-#      serial: "{{ device.serial_number }}"
-#    var_name: device_list
-#
-#- name: Set existing device
+#- name: Collect unique VRFs
 #  set_fact:
-#    device_obj: "{{ device_list[0] if device_list | length > 0 else {} }}"
+#    unique_vrfs: "{{ (device.interfaces | default([]) | map(attribute='vrf') | select('defined') | unique + device.vrfs | default([])) | unique | select('defined') | list }}"
 #
-#- name: Create or update device
-#  include_tasks: api_create_or_update.yml
-#  vars:
-#    endpoint: "{{ endpoints.devices }}"
-#    obj_id: "{{ device_obj.id if device_obj.id is defined }}"
-#    body:
-#      name: "{{ device.name }}"
-#      serial: "{{ device.serial_number }}"
-#      device_type:
-#        id: "{{ device_type_id }}"
-#      role:
-#        id: "{{ role_id }}"
-#      platform:
-#        id: "{{ platform_id }}"
-#      location:
-#        id: "{{ location_id | default(omit) }}"
-#      status: "{{ device.status | default(nautobot_status) }}"
-#      custom_fields: "{{ device.custom_fields | default({}) }}"
-#      tags: "{{ tag_ids | default([]) | map('hash', {'id': 'id'}) | list }}"
-#      asset_tag: "{{ device.asset_tag | default(omit) }}"
-#      rack:
-#        id: "{{ rack_id | default(omit) }}"
-#      position: "{{ device.position | default(omit) }}"
-#      face: "{{ device.face | default(omit) }}"
-#      tenant:
-#        id: "{{ tenant_id | default(omit) }}"
-#      software_version:
-#        id: "{{ software_version_id | default(omit) }}"
-#      comments: "{{ device.comments | default(omit) }}"
-#      primary_ip4:
-#        id: "{{ primary_ip4_id | default(omit) }}"
-#    var_name: device_obj
+#- include_tasks: process_vrf.yml
+#  loop: "{{ unique_vrfs }}"
+#  loop_control:
+#    loop_var: vrf_name
+#  when: unique_vrfs | length > 0 and device_id is defined
 #
-#- set_fact:
-#    device_id: "{{ device_obj.id | default(omit) }}"
+#- include_tasks: process_vlan.yml
+#  loop: "{{ device.vlans | default([]) | unique }}"
+#  loop_control:
+#    loop_var: vlan_name
+#    label: "{{ vlan_name }}"
+#  when: device.vlans | length > 0 and device_id is defined
 #
 #- include_tasks: process_interface.yml
 #  loop: "{{ device.interfaces | default([]) }}"
 #  loop_control:
 #    loop_var: intf
-#  when: device.interfaces | length > 0
+#  when: device.interfaces | length > 0 and device_id is defined
 #
 #- name: Process primary IP
 #  include_tasks: process_ip.yml
 #  vars:
 #    ip: "{{ device.primary_ip4 }}"
+#    interface_name: "mgmt"
 #    interface_id: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).id | default(omit) if device.primary_ip4 in (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).ip_addresses | default([]) else omit }}"
-#    vrf: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).vrf | default(omit) }}"
+#    vrf_name: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).vrf | default(omit) }}"
 #    tenant: "{{ device.tenant | default(omit) }}"
-#  when: device.primary_ip4 is defined
+#  when: device.primary_ip4 is defined and device_id is defined
 #
 #- name: Update device with primary IP
 #  include_tasks: api_create_or_update.yml
@@ -114,30 +112,6 @@
 #    endpoint: "{{ endpoints.devices }}"
 #    obj_id: "{{ device_id }}"
 #    body:
-#      name: "{{ device.name }}"
-#      serial: "{{ device.serial_number }}"
-#      device_type:
-#        id: "{{ device_type_id }}"
-#      role:
-#        id: "{{ role_id }}"
-#      platform:
-#        id: "{{ platform_id }}"
-#      location:
-#        id: "{{ location_id | default(omit) }}"
-#      status: "{{ device.status | default(nautobot_status) }}"
-#      custom_fields: "{{ device.custom_fields | default({}) }}"
-#      tags: "{{ tag_ids | default([]) | map('hash', {'id': 'id'}) | list }}"
-#      asset_tag: "{{ device.asset_tag | default(omit) }}"
-#      rack:
-#        id: "{{ rack_id | default(omit) }}"
-#      position: "{{ device.position | default(omit) }}"
-#      face: "{{ device.face | default(omit) }}"
-#      tenant:
-#        id: "{{ tenant_id | default(omit) }}"
-#      software_version:
-#        id: "{{ software_version_id | default(omit) }}"
-#      comments: "{{ device.comments | default(omit) }}"
-#      primary_ip4:
-#        id: "{{ ip_obj.id if ip_obj.id is defined else omit }}"
+#      primary_ip4: { "id": "{{ ip_obj.id | default(omit) }}" }
 #    var_name: device_obj
-#  when: device.primary_ip4 is defined and ip_obj.id is defined
+#  when: device.primary_ip4 is defined and ip_obj.id is defined and device_id is defined
