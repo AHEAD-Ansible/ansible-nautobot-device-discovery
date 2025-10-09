@@ -50,6 +50,10 @@
 - set_fact:
     interface_id: "{{ interface.id }}"
 
+- name: Update interface_ids
+  set_fact:
+    interface_ids: "{{ interface_ids | combine({intf.name: interface_id}) }}"
+
 - name: Process IP addresses
   include_tasks: process_ip.yml
   loop: "{{ intf.ip_addresses | default([]) }}"

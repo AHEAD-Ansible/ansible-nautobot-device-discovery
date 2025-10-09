@@ -90,6 +90,10 @@
     label: "{{ vlan_name }}"
   when: device.vlans | length > 0 and device_id is defined
 
+- name: Initialize interface_ids
+  set_fact:
+    interface_ids: {}
+
 - include_tasks: process_interface.yml
   loop: "{{ device.interfaces | default([]) }}"
   loop_control:
@@ -101,7 +105,7 @@
   vars:
     ip: "{{ device.primary_ip4 }}"
     interface_name: "mgmt"
-    interface_id: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).id | default(omit) if device.primary_ip4 in (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).ip_addresses | default([]) else omit }}"
+    interface_id: "{{ interface_ids['mgmt'] | default(omit) }}"
     vrf_name: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).vrf | default(omit) }}"
     tenant: "{{ device.tenant | default(omit) }}"
   when: device.primary_ip4 is defined and device_id is defined
