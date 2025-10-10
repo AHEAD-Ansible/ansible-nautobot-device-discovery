@@ -146,10 +146,10 @@
         device_facts: "{{ device_facts + [{
             'name': hostvars[f5_host].hostname | default(f5_host),
             'serial_number': hostvars[f5_host].serial_number | default('UNKNOWN'),
-            'vendor': 'F5',
-            'model': hostvars[f5_host].model | default('BIG-IP'),
-            'device_type': 'Load Balancer',
-            'location': hostvars[f5_host].location | default('DataCenter-East'),
+            'manufacturer': 'F5' if hostvars[f5_host].system_info.product_code | default('') == 'BIG-IP' else hostvars[f5_host].system_info.product_code | default('F5'),
+            'device_type': hostvars[f5_host].model,
+            'role': hostvars[f5_host].role | default('Load Balancer'),
+            'location': hostvars[f5_host].location | default('Not Defined'),
             'platform': 'tmos',
             'interfaces': hostvars[f5_host].interfaces_list | default([]),
             'primary_ip4': hostvars[f5_host].mgmt_ip | default(''),
@@ -174,5 +174,5 @@
         var: device_facts
       run_once: true
 
-  roles:
-    - role: nautobot_discovery
+#  roles:
+#    - role: nautobot_discovery

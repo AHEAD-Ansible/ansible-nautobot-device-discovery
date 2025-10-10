@@ -3,7 +3,7 @@
   vars:
     endpoint: "{{ endpoints.device_types }}"
     filters:
-      model: "{{ device.model }}"
+      model: "{{ device.device_type }}"
     var_name: device_type_list
 
 - name: Set existing device type
@@ -16,7 +16,7 @@
     endpoint: "{{ endpoints.device_types }}"
     obj_id: "{{ device_type.id | default(omit) }}"
     body:
-      model: "{{ device.model }}"
+      model: "{{ device.device_type }}"
       manufacturer:
         id: "{{ manufacturer_id }}"
       u_height: 1

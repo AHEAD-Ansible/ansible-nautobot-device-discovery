@@ -1,14 +1,14 @@
 ---
 - name: Debug input variables
   debug:
-    msg: "Processing manufacturer: vendor={{ device.vendor | default('Unknown') }}, endpoint={{ endpoints.manufacturers }}"
+    msg: "Processing manufacturer: manufacturer={{ device.manufacturer | default('Unknown') }}, endpoint={{ endpoints.manufacturers }}"
   when: debug | default(false)
 
 - include_tasks: api_lookup.yml
   vars:
     endpoint: "{{ endpoints.manufacturers }}"
     filters:
-      name: "{{ device.vendor | default('Unknown') }}"
+      name: "{{ device.manufacturer | default('Unknown') }}"
     var_name: manufacturer_list
 
 - name: Set existing manufacturer
@@ -26,7 +26,7 @@
     endpoint: "{{ endpoints.manufacturers }}"
     obj_id: "{{ manufacturer.id | default(omit) }}"
     body:
-      name: "{{ device.vendor | default('Unknown') }}"
+      name: "{{ device.manufacturer | default('Unknown') }}"
     var_name: manufacturer
   when: manufacturer_list | length == 0 or manufacturer.id is defined
 
@@ -34,7 +34,7 @@
   block:
     - name: Lookup manufacturer by name after 400 error
       ansible.builtin.uri:
-        url: "{{ api_base_url }}{{ endpoints.manufacturers.path }}?name={{ device.vendor | default('Unknown') | urlencode }}"
+        url: "{{ api_base_url }}{{ endpoints.manufacturers.path }}?name={{ device.manufacturer | default('Unknown') | urlencode }}"
         headers: "{{ api_headers }}"
         method: GET
         validate_certs: "{{ nautobot_validate_certs }}"

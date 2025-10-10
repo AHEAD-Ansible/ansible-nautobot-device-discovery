@@ -2,14 +2,14 @@
 - name: Ensure role name is defined
   ansible.builtin.fail:
     msg: "Role name is undefined in device facts or inventory"
-  when: device.role_name | default(device.device_type | default('')) == ''
+  when: device.role | default(device.device_type | default('')) == ''
 
 - name: Perform API lookup for role
   ansible.builtin.include_tasks: api_lookup.yml
   vars:
     endpoint: "{{ endpoints.device_roles }}"
     filters:
-      name: "{{ device.role_name | default(device.device_type | default('Load Balancer')) }}"
+      name: "{{ device.role }}"
     var_name: role_list
 
 - name: Set existing role
@@ -19,7 +19,7 @@
 - name: Define role body
   ansible.builtin.set_fact:
     role_body:
-      name: "{{ device.role_name | default(device.device_type | default('Load Balancer')) }}"
+      name: "{{ device.role | default(device.device_type | default('Load Balancer')) }}"
       color: "{{ device.role_color | default('ff0000') }}"
       content_types:
         - dcim.device
