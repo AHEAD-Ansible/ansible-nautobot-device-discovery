@@ -90,8 +90,9 @@ endpoints:
     required_fields: [name, vid, location, status]
     slug_from: null
     lookup_key: name
-  static_routes:
-    path: /ipam/static-routes/
-    required_fields: [device, destination, next_hops, status]
+
+  ip_address_to_interface:
+    path: /ipam/ip-address-to-interface/
+    required_fields: [ ]
     slug_from: null
-    lookup_key: destination
+    lookup_key: id
