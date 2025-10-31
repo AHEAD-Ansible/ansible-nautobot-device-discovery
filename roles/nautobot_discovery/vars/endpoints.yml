@@ -90,9 +90,20 @@ endpoints:
     required_fields: [name, vid, location, status]
     slug_from: null
     lookup_key: name
-
   ip_address_to_interface:
     path: /ipam/ip-address-to-interface/
-    required_fields: [ ]
+    required_fields: [ ip_address, interface ]              # or vm_interface one is required
+    optional_fields: [vm_interface, is_source, is_destination, is_default, is_preferred, is_primary, is_secondary, is_standby ]
+    slug_from: null
+    lookup_key: id
+  vrf_prefix_assignments:
+    path: /ipam/vrf-prefix-assignments/
+    required_fields: [ vrf, prefix ]
+    slug_from: null
+    lookup_key: id
+  vrf_device_assignments:
+    path: /ipam/vrf-device-assignments/
+    required_fields: [ vrf ]
+    optional_fields: [ device, virtual_machine, virtual_device_context, name, rd ]
     slug_from: null
     lookup_key: id

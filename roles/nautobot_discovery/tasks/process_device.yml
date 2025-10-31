@@ -158,6 +158,50 @@
   set_fact:
     vrf_ids: "{{ dict(unique_vrfs | zip(final_vrfs | map(attribute='id'))) }}"
   when: unique_vrfs | length > 0
+# ------------------------------------------------------------------
+# VRF-Device assignments – bulk upsert
+# ------------------------------------------------------------------
+- name: Collect unique device VRFs
+  set_fact:
+    unique_device_vrfs: >-
+      {{ device.interfaces | default([]) | map(attribute='vrf') | select('defined') | unique | list }}
+
+- name: Initialize desired VRF-device assignment list
+  set_fact:
+    desired_vrf_assignments: []
+  when: unique_device_vrfs | length > 0
+
+- name: Build desired VRF-device assignment bodies
+  set_fact:
+    desired_vrf_assignments: >-
+      {{ desired_vrf_assignments + [{
+          'vrf': {'id': vrf_ids[item]},
+          'device': {'id': device_id}
+        }] }}
+  loop: "{{ unique_device_vrfs }}"
+  loop_control:
+    loop_var: item
+  when: unique_device_vrfs | length > 0
+
+- name: Build VRF-device assignment lookup filters (by vrf id)
+  include_tasks: utils_build_lookup_filters.yml
+  vars:
+    values: "{{ unique_device_vrfs | map('extract', vrf_ids) | list }}"
+    override_key: "vrf"
+    result_var: vrf_assign_lookup_filters
+  when: desired_vrf_assignments | length > 0
+
+- name: Upsert VRF-device assignments in bulk
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint: "{{ endpoints.vrf_device_assignments }}"
+    desired_bodies: "{{ desired_vrf_assignments }}"
+    unique_key: "vrf.id"
+    lookup_filters_input: "{{ vrf_assign_lookup_filters }}"
+    extra_lookup_filters:
+      device: "{{ device_id }}"
+    result_var: final_vrf_assignments
+  when: desired_vrf_assignments | length > 0
 
 # ------------------------------------------------------------------
 # VLANs – bulk upsert
@@ -391,8 +435,6 @@
     desired_bodies: "{{ desired_prefixes }}"
     unique_key: "prefix"
     lookup_filters_input: "{{ prefix_lookup_filters }}"
-    extra_lookup_filters:
-      namespace: "{{ nautobot_namespace }}"
     result_var: final_prefixes
   when: desired_prefixes | length > 0
 
@@ -402,185 +444,106 @@
   when: desired_prefixes | length > 0
 
 # ------------------------------------------------------------------
-# Prefix-VRF assignments – bulk create missing
+# Prefixes – derive from IPs, without vrf
 # ------------------------------------------------------------------
-- name: Build desired prefix-VRF assignments
+- name: Get unique IP addresses
   set_fact:
-    desired_prefix_assignments: "{{ desired_prefix_assignments + [assign_body] }}"
+    all_ip_addresses: "{{ desired_ips | map(attribute='address') | unique }}"
+  when: desired_ips | length > 0
+
+- name: Parse network prefixes
+  ansible.builtin.command: >-
+    python -c "import ipaddress; print(ipaddress.ip_interface('{{ item }}').network)"
+  register: prefix_results
+  changed_when: false
+  loop: "{{ all_ip_addresses }}"
+  when: all_ip_addresses | length > 0
+
+- name: Initialize prefix list and seen tracker
+  set_fact:
+    desired_prefixes: []
+    seen_prefixes: []
+  when: prefix_results.results is defined
+
+- name: Build unique prefix bodies and vrf map
+  set_fact:
+    desired_prefixes: "{{ desired_prefixes + [body] }}"
+    seen_prefixes: "{{ seen_prefixes + [prefix] }}"
+    prefix_vrfs: "{{ prefix_vrfs | default({}) | combine({prefix: vrf_id}) }}"
+  loop: "{{ prefix_results.results }}"
   vars:
+    prefix: "{{ item.stdout }}"
+    matching_ip: "{{ desired_ips | selectattr('address','equalto',item.item) | first }}"
+    vrf_id: "{{ matching_ip.vrf.id if matching_ip.vrf is defined else none }}"
+    tenant: "{{ {'tenant': {'id': tenant_ids[device.tenant]}} if device.tenant is defined and device.tenant in tenant_ids else {} }}"
+    body: >-
+      {{ {'prefix': prefix,
+          'namespace': nautobot_namespace,
+          'status': nautobot_status} |
+         combine(tenant) }}
+  when: prefix_results.results is defined and prefix not in seen_prefixes
+
+- name: Build prefix lookup filters
+  include_tasks: utils_build_lookup_filters.yml
+  vars:
+    endpoint: "{{ endpoints.prefixes }}"
+    values: "{{ desired_prefixes | map(attribute='prefix') | list }}"
+    result_var: prefix_lookup_filters
+  when: desired_prefixes | length > 0
+
+- name: Upsert prefixes in bulk
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint: "{{ endpoints.prefixes }}"
+    desired_bodies: "{{ desired_prefixes }}"
+    unique_key: "prefix"
+    lookup_filters_input: "{{ prefix_lookup_filters }}"
+    result_var: final_prefixes
+  when: desired_prefixes | length > 0
+
+- name: Build prefix_ids map
+  set_fact:
+    prefix_ids: "{{ prefix_ids | default({}) | combine({item.prefix: item.id}) }}"
+  loop: "{{ final_prefixes }}"
+  when: final_prefixes | length > 0
+
+# ------------------------------------------------------------------
+# Prefix-VRF assignments – bulk upsert
+# ------------------------------------------------------------------
+- name: Initialize desired_prefix_assignments
+  set_fact:
     desired_prefix_assignments: []
-    assign_body: >-
-      {{ {'vrf': {'id': vrf_id},
-          'prefix': {'id': prefix_ids[prefix]}} }}
+  when: prefix_vrfs is defined and prefix_vrfs | length > 0
+
+- name: Build desired Prefix-VRF assignment bodies
+  set_fact:
+    desired_prefix_assignments: >-
+      {{ desired_prefix_assignments + [ {
+          'prefix': {'id': prefix_ids[item.key]},
+          'vrf': {'id': item.value}
+        } ] }}
   loop: "{{ prefix_vrfs | dict2items }}"
   loop_control:
     loop_var: item
-  vars:
-    prefix: "{{ item.key }}"
-    vrf_id: "{{ item.value }}"
-  when: prefix_vrfs is defined and prefix_vrfs | length > 0 and item.value is not none
+  when: item.value is not none
 
-- name: Build prefix assignment lookup filters
+- name: Build Prefix-VRF assignment lookup filters (by prefix id)
   include_tasks: utils_build_lookup_filters.yml
   vars:
     values: "{{ final_prefixes | map(attribute='id') | list }}"
     override_key: "prefix"
     result_var: prefix_assign_lookup_filters
-  when: desired_prefix_assignments | default([]) | length > 0
+  when: desired_prefix_assignments | length > 0
 
-- name: Lookup existing prefix-VRF assignments
-  include_tasks: api_lookup.yml
-  vars:
-    endpoint:
-      path: "/ipam/vrf-prefix-assignments/"
-    lookup_filters: "{{ prefix_assign_lookup_filters }}"
-    var_name: existing_prefix_assignments
-  when: desired_prefix_assignments | default([]) | length > 0
-
-- name: Build existing prefix-VRF pairs
-  set_fact:
-    existing_prefix_vrf_pairs: "{{ existing_prefix_assignments | map('json_query', '{pair: (vrf.id + \":\" + prefix.id)}') | map(attribute='pair') | list }}"
-  when: desired_prefix_assignments | default([]) | length > 0
-
-- name: Collect missing prefix-VRF assignment bodies
-  set_fact:
-    missing_prefix_assign_bodies: "{{ missing_prefix_assign_bodies + [item] }}"
-  loop: "{{ desired_prefix_assignments | default([]) }}"
-  vars:
-    missing_prefix_assign_bodies: []
-    pair: "{{ item.vrf.id ~ ':' ~ item.prefix.id }}"
-  when: pair not in existing_prefix_vrf_pairs | default([])
-
-- name: Bulk create missing prefix-VRF assignments (chunked)
-  include_tasks: api_bulk.yml
-  loop: "{{ missing_prefix_assign_bodies | default([]) | batch(nautobot_discovery_batch_size | default(50)) | list }}"
-  loop_control:
-    loop_var: chunk
-  vars:
-    method: POST
-    api_endpoint:
-      path: "/ipam/vrf-prefix-assignments/"
-    bodies: "{{ chunk }}"
-    result_var: created_prefix_assign
-  when: missing_prefix_assign_bodies | default([]) | length > 0
-  register: prefix_assign_results
-
-# ------------------------------------------------------------------
-# IPs – bulk upsert without assignments
-# ------------------------------------------------------------------
-- name: Build IP lookup filters
-  include_tasks: utils_build_lookup_filters.yml
-  vars:
-    endpoint: "{{ endpoints.ip_addresses }}"
-    values: "{{ desired_ips | map(attribute='address') | unique | list }}"
-    result_var: ip_lookup_filters
-  when: desired_ips | length > 0
-
-- name: Upsert IP addresses in bulk
+- name: Upsert Prefix-VRF assignments in bulk
   include_tasks: api_upsert.yml
   vars:
-    endpoint: "{{ endpoints.ip_addresses }}"
-    desired_bodies: "{{ desired_ips }}"
-    unique_key: "address"
-    lookup_filters_input: "{{ ip_lookup_filters }}"
-    extra_lookup_filters:
-      namespace: "{{ nautobot_namespace }}"
-    result_var: final_ips
-  when: desired_ips | length > 0
+    endpoint: "{{ endpoints.vrf_prefix_assignments }}"
+    desired_bodies: "{{ desired_prefix_assignments }}"
+    unique_key: "prefix.id"
+    lookup_filters_input: "{{ prefix_assign_lookup_filters }}"
+    result_var: final_prefix_assignments
+  when: desired_prefix_assignments | length > 0
 
-- name: Build ip_ids map
-  set_fact:
-    ip_ids: "{{ dict(final_ips | map(attribute='address') | zip(final_ips | map(attribute='id'))) }}"
-  when: desired_ips | length > 0
-
-# ------------------------------------------------------------------
-# IP-Interface assignments – bulk create missing
-# ------------------------------------------------------------------
-- name: Initialize IP to interface map
-  set_fact:
-    ip_to_intf: {}
-
-- name: Add primary IP to map
-  set_fact:
-    ip_to_intf: "{{ ip_to_intf | combine({device.primary_ip4: interface_ids['mgmt']}) }}"
-  when: device.primary_ip4 is defined and 'mgmt' in interface_ids
-
-- name: Add interface IPs to map
-  set_fact:
-    ip_to_intf: "{{ ip_to_intf | combine({item.1: interface_ids[item.0.name]}) }}"
-  loop: "{{ device.interfaces | default([]) | subelements('ip_addresses', skip_missing=True) }}"
-  when: device.interfaces | default([]) | length > 0
-
-- name: Build desired IP-Interface assignments
-  set_fact:
-    desired_ip_assignments: "{{ desired_ip_assignments + [assign_body] }}"
-  vars:
-    desired_ip_assignments: []
-    assign_body: >-
-      {{ {'ip_address': {'id': ip_ids[ip_str]},
-          'interface': {'id': intf_id}} }}
-  loop: "{{ ip_to_intf | dict2items }}"
-  loop_control:
-    loop_var: item
-  vars:
-    ip_str: "{{ item.key }}"
-    intf_id: "{{ item.value }}"
-
-- name: Build IP assignment lookup filters
-  include_tasks: utils_build_lookup_filters.yml
-  vars:
-    values: "{{ final_ips | map(attribute='id') | list }}"
-    override_key: "ip_address"
-    result_var: ip_assign_lookup_filters
-  when: desired_ip_assignments | default([]) | length > 0
-
-- name: Lookup existing IP-Interface assignments
-  include_tasks: api_lookup.yml
-  vars:
-    endpoint:
-      path: "/ipam/ip-address-to-interface/"
-    lookup_filters: "{{ ip_assign_lookup_filters }}"
-    var_name: existing_ip_assignments
-  when: desired_ip_assignments | default([]) | length > 0
-
-- name: Build existing IP-Interface pairs
-  set_fact:
-    existing_ip_intf_pairs: "{{ existing_ip_assignments | map('json_query', '{pair: (ip_address.id + \":\" + interface.id)}') | map(attribute='pair') | list }}"
-  when: desired_ip_assignments | default([]) | length > 0
-
-- name: Collect missing IP-Interface assignment bodies
-  set_fact:
-    missing_ip_assign_bodies: "{{ missing_ip_assign_bodies + [item] }}"
-  loop: "{{ desired_ip_assignments | default([]) }}"
-  vars:
-    missing_ip_assign_bodies: []
-    pair: "{{ item.ip_address.id ~ ':' ~ item.interface.id }}"
-  when: pair not in existing_ip_intf_pairs | default([])
-
-- name: Bulk create missing IP-Interface assignments (chunked)
-  include_tasks: api_bulk.yml
-  loop: "{{ missing_ip_assign_bodies | default([]) | batch(nautobot_discovery_batch_size | default(50)) | list }}"
-  loop_control:
-    loop_var: chunk
-  vars:
-    method: POST
-    api_endpoint:
-      path: "/ipam/ip-address-to-interface/"
-    bodies: "{{ chunk }}"
-    result_var: created_ip_assign
-  when: missing_ip_assign_bodies | default([]) | length > 0
-  register: ip_assign_results
-
-# ------------------------------------------------------------------
-# Update device primary_ip4 reference
-# ------------------------------------------------------------------
-- name: Update device with primary IP
-  include_tasks: api_create_or_update.yml
-  vars:
-    endpoint: "{{ endpoints.devices }}"
-    obj_id: "{{ device_id }}"
-    body:
-      primary_ip4: >-
-        {{ {'id': ip_ids[device.primary_ip4] | default(omit)} }}
-    var_name: device_obj
-  when: device.primary_ip4 is defined and device_id is defined
+- include_tasks: process_ips.yml
+  when: device.interfaces | default([]) | length > 0 or device.primary_ip4 is defined

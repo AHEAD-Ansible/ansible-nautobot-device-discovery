@@ -1,17 +1,17 @@
 # roles/nautobot_discovery/tasks/api_upsert.yml
 ---
-# === U P S E R T   O R C H E S T R A T O R ===
+# === UNIVERSAL UPSERT: Supports dotted unique_key (e.g. prefix.id) ===
 # REQUIRED:
 #   - endpoint
-#   - desired_bodies
-#   - unique_key
+#   - desired_bodies: list[dict]
+#   - unique_key: str (e.g. "rd", "prefix.id")
 #   - lookup_filters_input: list[dict] → [{'key': 'rd', 'value': '0'}, ...]
-#   - result_var
+#   - result_var: str
 # OPTIONAL:
 #   - batch_size (default: 50)
-#   - extra_lookup_filters: {namespace: "id"}
+#   - extra_lookup_filters: dict
 #   - debug_mode (via nautobot_discovery_debug)
-#
+
 - name: Validate required vars
   assert:
     that:
@@ -19,132 +19,157 @@
       - endpoint.path is defined
       - desired_bodies is defined
       - unique_key is defined
-      - lookup_filters_input is defined
-      - lookup_filters_input is iterable
-      - lookup_filters_input | length > 0
+      - lookup_filters_input is defined and lookup_filters_input is iterable and lookup_filters_input | length > 0
       - result_var is defined
-    fail_msg: "api_upsert: missing required vars (lookup_filters_input REQUIRED)"
+    fail_msg: "api_upsert: missing required vars"
 
 - name: Set defaults
   set_fact:
-    batch_size: "{{ nautobot_discovery_batch_size }}"
+    batch_size: "{{ nautobot_discovery_batch_size | default(50) }}"
     debug_mode: "{{ nautobot_discovery_debug | default(false) }}"
-
-- name: Debug input
-  debug:
-    msg: |
-      Upserting {{ desired_bodies | length }} objects to {{ endpoint.path }}
-      unique_key: {{ unique_key }}
-      lookup_filters_input: {{ lookup_filters_input | length }} items
-      batch_size: {{ batch_size }}
-  when: debug_mode
+    is_dotted: "{{ '.' in unique_key }}"
 
 # ========================================
-# 1. LOOKUP EXISTING (USING PROVIDED FILTERS)
+# 1. LOOKUP EXISTING (chunked)
 # ========================================
-- name: Prepare extra filters list
+- name: Prepare extra filters
   set_fact:
-    extra_filters_list: "{{ extra_lookup_filters | default({}) | dict2items | list }}"
+    extra_filters_list: "{{ extra_lookup_filters | default({}) | dict2items }}"
   when: extra_lookup_filters is defined
 
-- name: Chunk base lookup filters
+- name: Chunk lookup filters
   set_fact:
-    base_lookup_chunks: "{{ lookup_filters_input | batch(batch_size) | list }}"
+    lookup_chunks: "{{ lookup_filters_input | batch(batch_size) | list }}"
 
-- name: Debug chunking
-  debug:
-    msg: |
-      Chunking {{ lookup_filters_input | length }} lookup filters into {{ base_lookup_chunks | length }} chunks (size: {{ batch_size }})
-      Extra filters: {{ extra_filters_list | length }} items
-  when: debug_mode
-
-- name: Initialize existing objects list
+- name: Initialize existing objects
   set_fact:
     existing_objects: []
 
 - name: Lookup existing objects (chunked)
   include_tasks: api_lookup_chunk.yml
-  loop: "{{ base_lookup_chunks }}"
+  loop: "{{ lookup_chunks }}"
   loop_control:
     loop_var: chunk
-  when: base_lookup_chunks | length > 0
+  when: lookup_chunks | length > 0
 
-- name: Flatten existing objects
+- name: Flatten results
   set_fact:
-    existing_objects: "{{ existing_objects | default([]) | flatten }}"
+    existing_objects: "{{ existing_objects | flatten }}"
 
 # ========================================
-# 2. BUILD MAP: key → object
+# 2. BUILD existing_map: unique_value → object
 # ========================================
-- name: Build existing map (unique_key → object)
+- name: Extract unique value safely (existing_objects)
   set_fact:
-    existing_map: >-
-      {{
-        dict(
-          existing_objects
-          | map(attribute=unique_key)
-          | zip(existing_objects)
-        )
-      }}
+    _extracted: "{{ (item | json_query(unique_key)) if is_dotted else (item[unique_key] | default(none)) }}"
+  loop: "{{ existing_objects }}"
+  register: _extracted_keys
+
+- name: Build existing_map
+  set_fact:
+    existing_map: "{{ existing_map | default({}) | combine({ extracted_key: item }, recursive=False) }}"
+  loop: "{{ existing_objects | zip(range(0, existing_objects | length)) | list }}"
+  loop_control:
+    loop_var: pair
+    label: "{{ pair.0.name | default('unknown') }}"
+  vars:
+    item: "{{ pair.0 }}"
+    idx: "{{ pair.1 }}"
+    extracted_key: "{{ _extracted_keys.results[idx].ansible_facts._extracted | default(None) }}"
+  when: extracted_key is not none
+
+
 
 # ========================================
 # 3. CLASSIFY: CREATE vs UPDATE
 # ========================================
-- name: Initialize create list
+- name: Initialize create_bodies
   set_fact:
     create_bodies: []
 
-# --- CREATE: Missing objects ---
-- name: Add missing to create_bodies
+- name: Extract desired unique values
   set_fact:
-    create_bodies: "{{ create_bodies + [item] }}"
+    _desired_key: "{{ (item | json_query(unique_key)) if is_dotted else (item[unique_key] | default(none)) }}"
   loop: "{{ desired_bodies }}"
-  loop_control:
-    loop_var: item
-  when: item[unique_key] not in existing_map
+  register: _desired_keys
 
-# --- UPDATE: Evaluate changes ---
-- name: Evaluate each desired object for update
+- name: Identify objects to create
   set_fact:
-    _candidate_update: >-
-      {{
-        (existing | combine(diff_fields, {'id': existing.id}))
-        if (existing and diff_fields | length > 0)
-        else none
-      }}
-  vars:
-    existing: "{{ existing_map[item[unique_key]] if item[unique_key] in existing_map else none }}"
-    diff_fields: "{{ item | dict_diff(existing | default({})) }}"
+    create_bodies: "{{ create_bodies + [item.item] }}"
+  loop: "{{ _desired_keys.results }}"
+  loop_control:
+    label: "{{ item.ansible_facts._desired_key | default('undefined') }}"
+  when: >
+    item.ansible_facts._desired_key is not none and
+    (item.ansible_facts._desired_key | string | trim) not in (existing_map | default({}))
+
+
+# ========================================
+# 4. IDENTIFY UPDATES
+# ========================================
+- name: Evaluate updates
+  set_fact:
+    _candidate: >-
+      {% set key_val = ((item | json_query(unique_key)) if is_dotted else (item[unique_key] | default(none))) %}
+      {% set key_str = (key_val | string | trim) if key_val is not none else none %}
+      {% set existing = (existing_map[key_str]) if key_str is not none and (existing_map is defined and key_str in existing_map) else none %}
+      {% if existing is none %}
+      {{ none }}
+      {% else %}
+      {% set readonly = ['id','url','created','last_updated','display','natural_slug','notes_url','_occupied','_nested','_depth','object_type','custom_fields'] %}
+      {% set desired_clean = item | dict_exclude(readonly) %}
+      {% set existing_clean = existing | dict_exclude(readonly) %}
+      {% if desired_clean != existing_clean %}
+      {{ desired_clean | combine({'id': existing.id}) }}
+      {% else %}
+      {{ none }}
+      {% endif %}
+      {% endif %}
   loop: "{{ desired_bodies }}"
   loop_control:
     loop_var: item
   register: _update_candidates
-  when: desired_bodies | length > 0
 
-# --- Collect valid updates ---
 - name: Initialize update_bodies
   set_fact:
     update_bodies: []
-  when: _update_candidates is defined
 
 - name: Collect valid update bodies
   set_fact:
-    update_bodies: >-
-      {{
-        update_bodies + [_item.ansible_facts._candidate_update]
-      }}
-  loop: "{{ _update_candidates.results | default([]) }}"
+    update_bodies: "{{ (update_bodies | default([])) + [_item.ansible_facts._candidate] }}"
+  loop: "{{ _update_candidates.results }}"
   loop_control:
     loop_var: _item
-  when:
-    - _update_candidates is defined
-    - _item.ansible_facts._candidate_update is defined
-    - _item.ansible_facts._candidate_update is not none
+  when: >
+    _item.ansible_facts._candidate is defined and
+    _item.ansible_facts._candidate is not none and
+    (_item.ansible_facts._candidate | type_debug) == 'dict' and
+    (_item.ansible_facts._candidate | length > 0)
 
 # ========================================
-# 4. BULK CREATE (chunked)
+# 4.5 FINAL SANITIZATION (after classification)
 # ========================================
-- name: Bulk create missing (chunked)
+- name: Sanitize create and update bodies before API calls
+  set_fact:
+    create_bodies: >-
+      {{ (create_bodies | default([])) | map('dict2items')
+        | map('rejectattr', 'key', 'in', [
+            'id','url','object_type','notes_url','natural_slug',
+            'display','created','last_updated'
+          ])
+        | map('items2dict') | list }}
+    update_bodies: >-
+      {{ (update_bodies | default([])) | map('dict2items')
+        | map('rejectattr', 'key', 'in', [
+            'id','url','object_type','notes_url','natural_slug',
+            'display','created','last_updated'
+          ])
+        | map('items2dict') | list }}
+
+# ========================================
+# 5. BULK CREATE
+# ========================================
+- name: Bulk create (chunked)
   include_tasks: api_bulk.yml
   loop: "{{ create_bodies | batch(batch_size) | list }}"
   loop_control:
@@ -157,20 +182,11 @@
   when: create_bodies | length > 0
   register: create_results
 
-- name: Flatten created results
-  set_fact:
-    created_objects: >-
-      {{
-        (create_results.results | default([]))
-        | map(attribute='created_chunk')
-        | flatten
-        | default([])
-      }}
 
 # ========================================
-# 5. BULK PATCH (chunked)
+# 6. BULK PATCH
 # ========================================
-- name: Bulk patch changed (chunked)
+- name: Bulk patch (chunked)
   include_tasks: api_bulk.yml
   loop: "{{ update_bodies | batch(batch_size) | list }}"
   loop_control:
@@ -183,28 +199,39 @@
   when: update_bodies | length > 0
   register: update_results
 
-- name: Flatten updated results
+- name: Flatten updated
   set_fact:
     updated_objects: >-
+      {{ (update_results.results | default([]) | map(attribute='updated_chunk') | flatten | default([])) }}
+
+# ========================================
+# 7. COLLECT UNCHANGED (existing but no update needed)
+# ========================================
+- name: Collect unchanged existing objects
+  set_fact:
+    unchanged_objects: >
       {{
-        (update_results.results | default([]))
-        | map(attribute='updated_chunk')
-        | flatten
-        | default([])
+        existing_objects
+        | rejectattr('id', 'in',
+            (created_objects | default([])) + (updated_objects | default([]))
+            | map(attribute='id')
+        )
+        | list
       }}
 
 # ========================================
-# 6. RETURN COMBINED RESULT
+# 8. RETURN RESULT: created + updated + unchanged
 # ========================================
-- name: Combine created + updated
+- name: Combine created + updated + unchanged
   set_fact:
-    "{{ result_var }}": "{{ created_objects + updated_objects }}"
+    "{{ result_var }}": >
+      {{
+        (created_objects | default([])) +
+        (updated_objects | default([])) +
+        (unchanged_objects | default([]))
+      }}
 
-- name: Debug final result
-  debug:
-    msg: |
-      Upsert complete:
-        Created: {{ created_objects | length }}
-        Updated: {{ updated_objects | length }}
-        Total: {{ (created_objects + updated_objects) | length }}
-  when: debug_mode
+- name: Clear extra_lookup_filters and list
+  set_fact:
+    extra_lookup_filters: {}
+    extra_filters_list: {}

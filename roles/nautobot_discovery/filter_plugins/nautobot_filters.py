@@ -25,10 +25,19 @@ def dict_diff(existing, planned):
             diff[k] = v
     return diff
 
+def nautobot_is_ip(value):
+    """Return True if value is a valid IP (with or without CIDR)."""
+    try:
+        ipaddress.ip_interface(value)
+        return True
+    except Exception:
+        return False
+
 class FilterModule(object):
     def filters(self):
         return {
             'nautobot_extract_prefixes': nautobot_extract_prefixes,
             'get_interface_for_ip': get_interface_for_ip,
-            'dict_diff': dict_diff
+            'dict_diff': dict_diff,
+            'nautobot_is_ip': nautobot_is_ip,  # ← NEW
         }
