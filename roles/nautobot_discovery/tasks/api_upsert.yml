@@ -27,7 +27,7 @@
 
 - name: Set defaults
   set_fact:
-    batch_size: "{{ batch_size | default(50) }}"
+    batch_size: "{{ nautobot_discovery_batch_size }}"
     debug_mode: "{{ nautobot_discovery_debug | default(false) }}"
 
 - name: Debug input
@@ -39,26 +39,39 @@
       batch_size: {{ batch_size }}
   when: debug_mode
 
-- name: Merge extra lookup filters (e.g., namespace)
-  set_fact:
-    lookup_filters_input: "{{ lookup_filters_input + extra_filters }}"
-  vars:
-    extra_filters: "{{ extra_lookup_filters | default({}) | dict2items }}"
-  when: extra_lookup_filters is defined
-
 # ========================================
 # 1. LOOKUP EXISTING (USING PROVIDED FILTERS)
 # ========================================
-- name: Lookup existing objects
-  include_tasks: api_lookup.yml
-  vars:
-    lookup_endpoint: "{{ endpoint }}"
-    lookup_filters: "{{ lookup_filters_input }}"   # ← SAFE: no recursion
-    var_name: existing_objects
+- name: Prepare extra filters list
+  set_fact:
+    extra_filters_list: "{{ extra_lookup_filters | default({}) | dict2items | list }}"
+  when: extra_lookup_filters is defined
+
+- name: Chunk base lookup filters
+  set_fact:
+    base_lookup_chunks: "{{ lookup_filters_input | batch(batch_size) | list }}"
+
+- name: Debug chunking
+  debug:
+    msg: |
+      Chunking {{ lookup_filters_input | length }} lookup filters into {{ base_lookup_chunks | length }} chunks (size: {{ batch_size }})
+      Extra filters: {{ extra_filters_list | length }} items
+  when: debug_mode
+
+- name: Initialize existing objects list
+  set_fact:
+    existing_objects: []
+
+- name: Lookup existing objects (chunked)
+  include_tasks: api_lookup_chunk.yml
+  loop: "{{ base_lookup_chunks }}"
+  loop_control:
+    loop_var: chunk
+  when: base_lookup_chunks | length > 0
 
 - name: Flatten existing objects
   set_fact:
-    existing_objects: "{{ existing_objects | default([]) }}"
+    existing_objects: "{{ existing_objects | default([]) | flatten }}"
 
 # ========================================
 # 2. BUILD MAP: key → object

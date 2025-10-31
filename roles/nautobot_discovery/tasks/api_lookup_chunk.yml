@@ -1,0 +1,11 @@
+---
+- name: Perform chunk lookup
+  include_tasks: api_lookup.yml
+  vars:
+    lookup_endpoint: "{{ endpoint }}"
+    lookup_filters: "{{ chunk + (extra_filters_list | default([])) }}"
+    var_name: chunk_results
+
+- name: Accumulate chunk results immediately
+  set_fact:
+    existing_objects: "{{ existing_objects + (chunk_results | default([])) }}"

@@ -206,24 +206,44 @@
   when: unique_vlans | length > 0
 
 # ------------------------------------------------------------------
-# Interfaces – bulk upsert
+# Interfaces – bulk upsert (PATTERN: VRFs/VLANs)
 # ------------------------------------------------------------------
 - name: Initialize desired interface list
   set_fact:
     desired_interfaces: []
-  when: device.interfaces | default([]) | length > 0
+  when: device.interfaces | default([]) | length > 0 and device_id is defined
 
 - name: Build desired interface bodies
   set_fact:
-    desired_interfaces: >-
-      {{ desired_interfaces + [intf_body] }}
+    desired_interfaces: "{{ desired_interfaces + [intf_body] }}"
   loop: "{{ device.interfaces | default([]) }}"
   loop_control:
     loop_var: intf
   vars:
-    mode: "{{ 'access' if intf.vlan is defined else omit }}"
-    untagged_vlan: "{{ {'id': vlan_ids[intf.vlan]} if intf.vlan is defined and intf.vlan in vlan_ids else omit }}"
-    vrf: "{{ {'id': vrf_ids[intf.vrf]} if intf.vrf is defined and intf.vrf in vrf_ids else omit }}"
+    # Mode logic (access/tagged)
+    mode: >-
+      {{ 'access' if intf.vlan is defined and intf.vlan in vlan_ids else 
+         'tagged' if (intf.tagged_vlans is defined and intf.tagged_vlans | length > 0) else omit }}
+
+    # Untagged VLAN (access mode)
+    untagged_vlan: >-
+      {{ {'id': vlan_ids[intf.vlan]} if (intf.vlan is defined and intf.vlan in vlan_ids) else omit }}
+
+    # Tagged VLANs (tagged mode) - Nautobot supports list of IDs
+    tagged_vlans: >-
+      {{ vlan_ids | dict2items 
+         | selectattr('key', 'in', intf.tagged_vlans | default([])) 
+         | map(attribute='value') 
+         | list | to_yaml | from_yaml 
+         | map('regex_replace', '^(.*)$', '{"id": "\\1"}') 
+         | map('from_json') 
+         | list if (intf.tagged_vlans is defined and intf.tagged_vlans | length > 0) else omit }}
+
+    # VRF
+    vrf_ref: >-
+      {{ {'id': vrf_ids[intf.vrf]} if (intf.vrf is defined and intf.vrf in vrf_ids) else omit }}
+
+    # Base interface
     base: >-
       {{ {'device': {'id': device_id},
           'name': intf.name,
@@ -231,12 +251,23 @@
           'enabled': true,
           'status': nautobot_status,
           'mgmt_only': intf.mgmt_only | default(false)} }}
+
+    # Complete interface body
     intf_body: >-
       {{ base |
          combine({'mode': mode} if mode != omit else {}) |
          combine({'untagged_vlan': untagged_vlan} if untagged_vlan != omit else {}) |
-         combine({'vrf': vrf} if vrf != omit else {}) }}
+         combine({'tagged_vlans': tagged_vlans} if tagged_vlans != omit else {}) |
+         combine({'vrf': vrf_ref} if vrf_ref != omit else {}) }}
   when: device.interfaces | default([]) | length > 0 and device_id is defined
+
+- name: Build interface lookup filters (by name)
+  include_tasks: utils_build_lookup_filters.yml
+  vars:
+    endpoint: "{{ endpoints.interfaces }}"
+    values: "{{ device.interfaces | map(attribute='name') | list | unique }}"
+    result_var: interface_lookup_filters
+  when: device.interfaces | length > 0 and device_id is defined
 
 - name: Upsert interfaces in bulk
   include_tasks: api_upsert.yml
@@ -244,9 +275,10 @@
     endpoint: "{{ endpoints.interfaces }}"
     desired_bodies: "{{ desired_interfaces }}"
     unique_key: "name"
-    natural_key: "device"
+    lookup_filters_input: "{{ interface_lookup_filters }}"
     result_var: "final_interfaces"
-    batch_size: "{{ bulk_chunk_size | default(50) }}"
+    extra_lookup_filters:
+      device: "{{ device_id }}"
   when: device.interfaces | length > 0 and device_id is defined
 
 - name: Build interface_ids map
