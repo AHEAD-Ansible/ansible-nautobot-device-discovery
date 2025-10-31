@@ -1,0 +1,17 @@
+---
+- name: Import device_facts from file
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Load device_facts from JSON file
+      set_fact:
+        device_facts: "{{ lookup('file', './device_facts.json') | from_json }}"
+    - name: Verify imported device_facts
+      debug:
+        var: device_facts
+
+- name: Run nautobot discovery role with imported facts
+  hosts: localhost
+  gather_facts: no
+  roles:
+    - role: nautobot_discovery

@@ -1,3 +1,4 @@
+# roles/nautobot_discovery/defaults/main.yml
 ---
 create_missing_locations: true
 default_location_type: "Datacenter"
@@ -14,6 +15,12 @@ prefix_ids: {}
 vrf_ids: {}
 tenant_ids: {}
 vlan_ids: {}
-rack_u_height: 42  # Standard 42U rack height
-rack_type: "2-post-frame"  # Common rack type
-rack_width: 19  # Standard 19-inch rack width
+rack_u_height: 42
+rack_type: "4-post-frame"
+rack_width: 19
+bulk_chunk_size: 40
+nautobot_discovery_batch_size: 40
+nautobot_discovery_bulk_chunk_size: 40
+nautobot_discovery_retry_attempts: 3
+nautobot_discovery_continue_on_error: false
+nautobot_discovery_debug: false

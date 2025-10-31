@@ -1,0 +1,17 @@
+# roles/nautobot_discovery/tasks/utils_build_lookup_filters.yml
+---
+- name: Determine lookup key
+  set_fact:
+    __lookup_key: "{{ override_key | default(endpoint.lookup_key | default('name')) }}"
+
+- name: Build lookup filters as list[dict]
+  set_fact:
+    "{{ result_var }}": "{{ _json | from_json }}"
+  vars:
+    _json: >-
+      [
+        {% for val in values | select('defined') | map('string') | unique %}
+          {"key": {{ __lookup_key | to_json }}, "value": {{ val | to_json }}}{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]
+  when: values | length > 0

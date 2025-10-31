@@ -174,5 +174,11 @@
         var: device_facts
       run_once: true
 
-#  roles:
-#    - role: nautobot_discovery
+    - name: Save device_facts to JSON file
+      copy:
+        content: "{{ device_facts | to_nice_json }}"
+        dest: "./device_facts.json"
+      run_once: true
+
+  roles:
+    - role: nautobot_discovery

@@ -9,71 +9,89 @@ endpoints:
     path: /ipam/namespaces/
     required_fields: [name]
     slug_from: null
+    lookup_key: name
   manufacturers:
     path: /dcim/manufacturers/
     required_fields: [name]
     slug_from: name
+    lookup_key: name
   platforms:
     path: /dcim/platforms/
     required_fields: [name, manufacturer]
     slug_from: name
+    lookup_key: name
   device_roles:
     path: /extras/roles/
     required_fields: [name, color, content_types]
     slug_from: name
+    lookup_key: name
   device_types:
     path: /dcim/device-types/
     required_fields: [model, manufacturer, u_height]
     slug_from: model
+    lookup_key: model
   tenants:
     path: /tenancy/tenants/
     required_fields: [name]
     slug_from: name
+    lookup_key: name
   software_versions:
     path: /dcim/software-versions/
     required_fields: [version, platform]
     slug_from: version
+    lookup_key: version
   location_types:
     path: /dcim/location-types/
     required_fields: [name, content_types]
     slug_from: name
+    lookup_key: name
   locations:
     path: /dcim/locations/
     required_fields: [name, location_type, status]
     slug_from: name
+    lookup_key: name
   racks:
     path: /dcim/racks/
     required_fields: [name, location, status, u_height, type, width]
     slug_from: name
+    lookup_key: name
   tags:
     path: /extras/tags/
     required_fields: [name, content_types]
     slug_from: name
+    lookup_key: name
   devices:
     path: /dcim/devices/
     required_fields: [name, device_type, role, location, status, serial]
     slug_from: null
+    lookup_key: name
   interfaces:
     path: /dcim/interfaces/
     required_fields: [device, name, type, enabled, status]
     slug_from: null
+    lookup_key: name
   ip_addresses:
     path: /ipam/ip-addresses/
     required_fields: [address, status, namespace]
     slug_from: null
+    lookup_key: address
   prefixes:
     path: /ipam/prefixes/
     required_fields: [prefix, namespace, status]
     slug_from: null
+    lookup_key: prefix
   vrfs:
     path: /ipam/vrfs/
     required_fields: [name, rd]
     slug_from: name
+    lookup_key: rd
   vlans:
     path: /ipam/vlans/
     required_fields: [name, vid, location, status]
     slug_from: null
+    lookup_key: name
   static_routes:
     path: /ipam/static-routes/
     required_fields: [device, destination, next_hops, status]
     slug_from: null
+    lookup_key: destination

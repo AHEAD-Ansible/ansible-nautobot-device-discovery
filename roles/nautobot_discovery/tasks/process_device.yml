@@ -1,3 +1,4 @@
+# roles/nautobot_discovery/tasks/process_device.yml
 ---
 - name: Load endpoints
   include_vars:
@@ -42,7 +43,10 @@
 
 - name: Set tags list
   set_fact:
-    tags_list: "{{ tag_ids | default([]) | map('regex_replace', '^(.*)$', '{\"id\": \"\\1\"}') | map('from_json') | list }}"
+    tags_list: >-
+      {{ tag_ids | default([]) |
+         map('regex_replace', '^(.*)$', '{"id": "\1"}') |
+         map('from_json') | list }}
 
 - name: Create or update device
   include_tasks: api_create_or_update.yml
@@ -72,50 +76,314 @@
   set_fact:
     device_id: "{{ device_obj.id }}"
 
+# ------------------------------------------------------------------
+# Namespace handling (renamed to avoid reserved name)
+# ------------------------------------------------------------------
+- name: Lookup or create namespace
+  block:
+    - include_tasks: api_lookup.yml
+      vars:
+        endpoint: "{{ endpoints.namespaces }}"
+        filters:
+          name: "{{ nautobot_namespace }}"
+        var_name: namespace_list
 
+    - name: Set namespace object
+      set_fact:
+        namespace_obj: "{{ namespace_list[0] if namespace_list | length > 0 else {} }}"
+
+    - include_tasks: api_create_or_update.yml
+      vars:
+        endpoint: "{{ endpoints.namespaces }}"
+        obj_id: omit
+        body:
+          name: "{{ nautobot_namespace }}"
+          description: ""
+        var_name: namespace_obj
+      when: namespace_list | length == 0
+
+# ------------------------------------------------------------------
+# VRFs – bulk upsert
+# ------------------------------------------------------------------
 - name: Collect unique VRFs
   set_fact:
-    unique_vrfs: "{{ (device.interfaces | default([]) | map(attribute='vrf') | select('defined') | unique + device.vrfs | default([])) | unique | select('defined') | list }}"
+    unique_vrfs: >-
+      {{ (device.interfaces | default([]) |
+          map(attribute='vrf') | select('defined') | unique +
+          device.vrfs | default([])) |
+         unique | select('defined') | list }}
 
-- include_tasks: process_vrf.yml
-  loop: "{{ unique_vrfs }}"
-  loop_control:
-    loop_var: vrf_name
-  when: unique_vrfs | length > 0 and device_id is defined
-
-- include_tasks: process_vlan.yml
-  loop: "{{ device.vlans | default([]) | unique }}"
-  loop_control:
-    loop_var: vlan_name
-    label: "{{ vlan_name }}"
-  when: device.vlans | length > 0 and device_id is defined
-
-- name: Initialize interface_ids
+- name: Initialize desired VRF list
   set_fact:
-    interface_ids: {}
+    desired_vrfs: []
+  when: unique_vrfs | length > 0
 
-- include_tasks: process_interface.yml
+- name: Build desired VRF bodies
+  set_fact:
+    desired_vrfs: >-
+      {{ desired_vrfs + [{
+          'name': item,
+          'rd': item,
+          'namespace': {'id': namespace_obj.id}
+      }] }}
+  loop: "{{ unique_vrfs }}"
+  when: unique_vrfs | length > 0
+
+# ------------------------------------------------------------------
+# NEW: Build VRF lookup filters for bulk query (?rd=0&rd=1)
+# ------------------------------------------------------------------
+- name: Build VRF lookup filters
+  include_tasks: utils_build_lookup_filters.yml
+  vars:
+    endpoint: "{{ endpoints.vrfs }}"
+    values: "{{ unique_vrfs }}"
+    result_var: vrf_lookup_filters
+
+# ------------------------------------------------------------------
+# Bulk upsert VRFs (using list-of-dicts filters)
+# ------------------------------------------------------------------
+- name: Upsert VRFs in bulk
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint: "{{ endpoints.vrfs }}"
+    desired_bodies: "{{ desired_vrfs }}"
+    unique_key: "{{ endpoints.vrfs.lookup_key }}"
+    lookup_filters_input: "{{ vrf_lookup_filters }}"
+    result_var: final_vrfs
+    extra_lookup_filters:
+      namespace: "{{ namespace_obj.id }}"
+  when: unique_vrfs | length > 0
+
+
+# ------------------------------------------------------------------
+# VLANs – bulk upsert
+# ------------------------------------------------------------------
+- name: Collect unique VLANs
+  set_fact:
+    unique_vlans: >-
+      {{ (device.vlans | default([]) +
+          device.interfaces | default([]) |
+          map(attribute='vlan') | select('defined')) |
+         unique | list }}
+
+- name: Initialize desired VLAN list
+  set_fact:
+    desired_vlans: []
+  when: unique_vlans | length > 0
+
+- name: Build desired VLAN bodies
+  set_fact:
+    desired_vlans: >-
+      {{ desired_vlans + [{'name': item,
+                          'vid': 1,
+                          'location': {'id': location.id},
+                          'status': nautobot_status}] }}
+  loop: "{{ unique_vlans }}"
+  when: unique_vlans | length > 0
+
+- name: Build VLAN lookup filters
+  include_tasks: utils_build_lookup_filters.yml
+  vars:
+    endpoint: "{{ endpoints.vlans }}"
+    values: "{{ unique_vlans }}"
+    result_var: "vlans_lookup_filters"
+
+- name: Upsert VLANs in bulk
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint: "{{ endpoints.vlans }}"
+    desired_bodies: "{{ desired_vlans }}"
+    unique_key: "{{ endpoints.vlans.lookup_key }}"
+    lookup_filters_input: "{{ vlans_lookup_filters }}"
+    result_var: "final_vlans"
+    extra_lookup_filters:
+      location: "{{ location.id }}"
+  when: unique_vlans | length > 0 and device_id is defined
+
+- name: Build vlan_ids map
+  set_fact:
+    vlan_ids: "{{ dict(unique_vlans | zip(final_vlans | map(attribute='id'))) }}"
+  when: unique_vlans | length > 0
+
+# ------------------------------------------------------------------
+# Interfaces – bulk upsert
+# ------------------------------------------------------------------
+- name: Initialize desired interface list
+  set_fact:
+    desired_interfaces: []
+  when: device.interfaces | default([]) | length > 0
+
+- name: Build desired interface bodies
+  set_fact:
+    desired_interfaces: >-
+      {{ desired_interfaces + [intf_body] }}
   loop: "{{ device.interfaces | default([]) }}"
   loop_control:
     loop_var: intf
+  vars:
+    mode: "{{ 'access' if intf.vlan is defined else omit }}"
+    untagged_vlan: "{{ {'id': vlan_ids[intf.vlan]} if intf.vlan is defined and intf.vlan in vlan_ids else omit }}"
+    vrf: "{{ {'id': vrf_ids[intf.vrf]} if intf.vrf is defined and intf.vrf in vrf_ids else omit }}"
+    base: >-
+      {{ {'device': {'id': device_id},
+          'name': intf.name,
+          'type': intf.type,
+          'enabled': true,
+          'status': nautobot_status,
+          'mgmt_only': intf.mgmt_only | default(false)} }}
+    intf_body: >-
+      {{ base |
+         combine({'mode': mode} if mode != omit else {}) |
+         combine({'untagged_vlan': untagged_vlan} if untagged_vlan != omit else {}) |
+         combine({'vrf': vrf} if vrf != omit else {}) }}
+  when: device.interfaces | default([]) | length > 0 and device_id is defined
+
+- name: Upsert interfaces in bulk
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint: "{{ endpoints.interfaces }}"
+    desired_bodies: "{{ desired_interfaces }}"
+    unique_key: "name"
+    natural_key: "device"
+    result_var: "final_interfaces"
+    batch_size: "{{ bulk_chunk_size | default(50) }}"
   when: device.interfaces | length > 0 and device_id is defined
 
-- name: Process primary IP
-  include_tasks: process_ip.yml
-  vars:
-    ip: "{{ device.primary_ip4 }}"
-    interface_name: "mgmt"
-    interface_id: "{{ interface_ids['mgmt'] | default(omit) }}"
-    vrf_name: "{{ (device.interfaces | selectattr('name', 'equalto', 'mgmt') | first).vrf | default(omit) }}"
-    tenant: "{{ device.tenant | default(omit) }}"
-  when: device.primary_ip4 is defined and device_id is defined
+- name: Build interface_ids map
+  set_fact:
+    interface_ids: "{{ dict(final_interfaces | map(attribute='name') | zip(final_interfaces | map(attribute='id'))) }}"
+  when: device.interfaces | length > 0
 
+# ------------------------------------------------------------------
+# IP addresses – bulk upsert (primary + interface IPs)
+# ------------------------------------------------------------------
+- name: Initialize desired IP list
+  set_fact:
+    desired_ips: []
+
+# Primary IP
+- name: Add primary IP
+  set_fact:
+    desired_ips: "{{ desired_ips + [primary_ip_body] }}"
+  vars:
+    primary_vrf: "{{ (device.interfaces | selectattr('name','equalto','mgmt') | first).vrf | default(none) }}"
+    vrf_dict: "{{ {'vrf': {'id': vrf_ids[primary_vrf]}} if primary_vrf and primary_vrf in vrf_ids else {} }}"
+    tenant_dict: "{{ {'tenant': {'id': tenant_ids[device.tenant]}} if device.tenant is defined and device.tenant in tenant_ids else {} }}"
+    primary_ip_body: >-
+      {{ {'address': device.primary_ip4,
+          'namespace': nautobot_namespace,
+          'status': nautobot_status,
+          'assigned_object_type': 'dcim.interface',
+          'assigned_object_id': interface_ids['mgmt']} |
+         combine(vrf_dict) | combine(tenant_dict) }}
+  when: device.primary_ip4 is defined and 'mgmt' in interface_ids
+
+# Interface IPs
+- name: Initialize interface IP bodies list
+  set_fact:
+    interface_ip_bodies: []
+  when: device.interfaces | default([]) | length > 0
+
+- name: Build interface IP bodies
+  set_fact:
+    interface_ip_bodies: "{{ interface_ip_bodies + [ip_body] }}"
+  loop: "{{ device.interfaces | default([]) | subelements('ip_addresses', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.name }} - {{ item.1 }}"
+  vars:
+    intf: "{{ item.0 }}"
+    ip_str: "{{ item.1 }}"
+    vrf_id: "{{ vrf_ids[intf.vrf] if intf.vrf is defined and intf.vrf in vrf_ids else none }}"
+    tenant_id: "{{ tenant_ids[device.tenant] if device.tenant is defined and device.tenant in tenant_ids else none }}"
+    ip_body: >-
+      {{ {'address': ip_str,
+          'namespace': nautobot_namespace,
+          'status': nautobot_status,
+          'assigned_object_type': 'dcim.interface',
+          'assigned_object_id': interface_ids[intf.name]} |
+         combine({'vrf': {'id': vrf_id}} if vrf_id else {}) |
+         combine({'tenant': {'id': tenant_id}} if tenant_id else {}) }}
+  when: device.interfaces | default([]) | length > 0
+
+
+- name: Combine primary and interface IPs
+  set_fact:
+    desired_ips: "{{ desired_ips + interface_ip_bodies }}"
+  when: interface_ip_bodies is defined
+
+# ------------------------------------------------------------------
+# Prefixes – derived from IPs, bulk upsert
+# ------------------------------------------------------------------
+- name: Get unique IP addresses
+  set_fact:
+    all_ip_addresses: "{{ desired_ips | map(attribute='address') | unique }}"
+  when: desired_ips | length > 0
+
+- name: Parse network prefixes
+  ansible.builtin.command: >-
+    python -c "import ipaddress; print(ipaddress.ip_interface('{{ item }}').network)"
+  register: prefix_results
+  changed_when: false
+  loop: "{{ all_ip_addresses }}"
+  when: all_ip_addresses | length > 0
+
+- name: Initialize prefix list and seen tracker
+  set_fact:
+    desired_prefixes: []
+    seen_prefixes: []
+  when: prefix_results.results is defined
+
+- name: Build unique prefix bodies
+  set_fact:
+    desired_prefixes: "{{ desired_prefixes + [body] }}"
+    seen_prefixes: "{{ seen_prefixes + [prefix] }}"
+  loop: "{{ prefix_results.results }}"
+  vars:
+    prefix: "{{ item.stdout }}"
+    matching_ip: "{{ desired_ips | selectattr('address','equalto',item.item) | first }}"
+    vrf: "{{ {'vrf': {'id': matching_ip.vrf.id}} if matching_ip.vrf is defined and matching_ip.vrf.id is defined else {} }}"
+    tenant: "{{ {'tenant': {'id': tenant_ids[device.tenant]}} if device.tenant is defined and device.tenant in tenant_ids else {} }}"
+    body: >-
+      {{ {'prefix': prefix,
+          'namespace': nautobot_namespace,
+          'status': nautobot_status} |
+         combine(vrf) | combine(tenant) }}
+  when: prefix_results.results is defined and prefix not in seen_prefixes
+
+- name: Upsert prefixes in bulk
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint: "{{ endpoints.prefixes }}"
+    desired_bodies: "{{ desired_prefixes }}"
+    unique_key: "prefix"
+    result_var: "final_prefixes"
+    extra_lookup_filters:
+      namespace: "{{ nautobot_namespace }}"
+  when: desired_prefixes | length > 0
+
+- name: Upsert IP addresses in bulk
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint: "{{ endpoints.ip_addresses }}"
+    desired_bodies: "{{ desired_ips }}"
+    unique_key: "address"
+    result_var: "final_ips"
+    extra_lookup_filters:
+      namespace: "{{ nautobot_namespace }}"
+  when: desired_ips | length > 0
+
+# ------------------------------------------------------------------
+# Update device primary_ip4 reference
+# ------------------------------------------------------------------
 - name: Update device with primary IP
   include_tasks: api_create_or_update.yml
   vars:
     endpoint: "{{ endpoints.devices }}"
     obj_id: "{{ device_id }}"
     body:
-      primary_ip4: { "id": "{{ ip_obj.id | default(omit) }}" }
+      primary_ip4: >-
+        {{ {'id': (final_ips |
+                   selectattr('address','equalto',device.primary_ip4) |
+                   map(attribute='id') | first | default(omit))} }}
     var_name: device_obj
-  when: device.primary_ip4 is defined and ip_obj.id is defined and device_id is defined
+  when: device.primary_ip4 is defined and device_id is defined

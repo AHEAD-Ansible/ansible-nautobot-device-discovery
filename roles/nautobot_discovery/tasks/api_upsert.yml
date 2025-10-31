@@ -1,0 +1,197 @@
+# roles/nautobot_discovery/tasks/api_upsert.yml
+---
+# === U P S E R T   O R C H E S T R A T O R ===
+# REQUIRED:
+#   - endpoint
+#   - desired_bodies
+#   - unique_key
+#   - lookup_filters_input: list[dict] → [{'key': 'rd', 'value': '0'}, ...]
+#   - result_var
+# OPTIONAL:
+#   - batch_size (default: 50)
+#   - extra_lookup_filters: {namespace: "id"}
+#   - debug_mode (via nautobot_discovery_debug)
+#
+- name: Validate required vars
+  assert:
+    that:
+      - endpoint is defined
+      - endpoint.path is defined
+      - desired_bodies is defined
+      - unique_key is defined
+      - lookup_filters_input is defined
+      - lookup_filters_input is iterable
+      - lookup_filters_input | length > 0
+      - result_var is defined
+    fail_msg: "api_upsert: missing required vars (lookup_filters_input REQUIRED)"
+
+- name: Set defaults
+  set_fact:
+    batch_size: "{{ batch_size | default(50) }}"
+    debug_mode: "{{ nautobot_discovery_debug | default(false) }}"
+
+- name: Debug input
+  debug:
+    msg: |
+      Upserting {{ desired_bodies | length }} objects to {{ endpoint.path }}
+      unique_key: {{ unique_key }}
+      lookup_filters_input: {{ lookup_filters_input | length }} items
+      batch_size: {{ batch_size }}
+  when: debug_mode
+
+- name: Merge extra lookup filters (e.g., namespace)
+  set_fact:
+    lookup_filters_input: "{{ lookup_filters_input + extra_filters }}"
+  vars:
+    extra_filters: "{{ extra_lookup_filters | default({}) | dict2items }}"
+  when: extra_lookup_filters is defined
+
+# ========================================
+# 1. LOOKUP EXISTING (USING PROVIDED FILTERS)
+# ========================================
+- name: Lookup existing objects
+  include_tasks: api_lookup.yml
+  vars:
+    lookup_endpoint: "{{ endpoint }}"
+    lookup_filters: "{{ lookup_filters_input }}"   # ← SAFE: no recursion
+    var_name: existing_objects
+
+- name: Flatten existing objects
+  set_fact:
+    existing_objects: "{{ existing_objects | default([]) }}"
+
+# ========================================
+# 2. BUILD MAP: key → object
+# ========================================
+- name: Build existing map (unique_key → object)
+  set_fact:
+    existing_map: >-
+      {{
+        dict(
+          existing_objects
+          | map(attribute=unique_key)
+          | zip(existing_objects)
+        )
+      }}
+
+# ========================================
+# 3. CLASSIFY: CREATE vs UPDATE
+# ========================================
+- name: Initialize create list
+  set_fact:
+    create_bodies: []
+
+# --- CREATE: Missing objects ---
+- name: Add missing to create_bodies
+  set_fact:
+    create_bodies: "{{ create_bodies + [item] }}"
+  loop: "{{ desired_bodies }}"
+  loop_control:
+    loop_var: item
+  when: item[unique_key] not in existing_map
+
+# --- UPDATE: Evaluate changes ---
+- name: Evaluate each desired object for update
+  set_fact:
+    _candidate_update: >-
+      {{
+        (existing | combine(diff_fields, {'id': existing.id}))
+        if (existing and diff_fields | length > 0)
+        else none
+      }}
+  vars:
+    existing: "{{ existing_map[item[unique_key]] if item[unique_key] in existing_map else none }}"
+    diff_fields: "{{ item | dict_diff(existing | default({})) }}"
+  loop: "{{ desired_bodies }}"
+  loop_control:
+    loop_var: item
+  register: _update_candidates
+  when: desired_bodies | length > 0
+
+# --- Collect valid updates ---
+- name: Initialize update_bodies
+  set_fact:
+    update_bodies: []
+  when: _update_candidates is defined
+
+- name: Collect valid update bodies
+  set_fact:
+    update_bodies: >-
+      {{
+        update_bodies + [_item.ansible_facts._candidate_update]
+      }}
+  loop: "{{ _update_candidates.results | default([]) }}"
+  loop_control:
+    loop_var: _item
+  when:
+    - _update_candidates is defined
+    - _item.ansible_facts._candidate_update is defined
+    - _item.ansible_facts._candidate_update is not none
+
+# ========================================
+# 4. BULK CREATE (chunked)
+# ========================================
+- name: Bulk create missing (chunked)
+  include_tasks: api_bulk.yml
+  loop: "{{ create_bodies | batch(batch_size) | list }}"
+  loop_control:
+    loop_var: chunk
+  vars:
+    method: POST
+    api_endpoint: "{{ endpoint }}"
+    bodies: "{{ chunk }}"
+    result_var: created_chunk
+  when: create_bodies | length > 0
+  register: create_results
+
+- name: Flatten created results
+  set_fact:
+    created_objects: >-
+      {{
+        (create_results.results | default([]))
+        | map(attribute='created_chunk')
+        | flatten
+        | default([])
+      }}
+
+# ========================================
+# 5. BULK PATCH (chunked)
+# ========================================
+- name: Bulk patch changed (chunked)
+  include_tasks: api_bulk.yml
+  loop: "{{ update_bodies | batch(batch_size) | list }}"
+  loop_control:
+    loop_var: chunk
+  vars:
+    method: PATCH
+    api_endpoint: "{{ endpoint }}"
+    bodies: "{{ chunk }}"
+    result_var: updated_chunk
+  when: update_bodies | length > 0
+  register: update_results
+
+- name: Flatten updated results
+  set_fact:
+    updated_objects: >-
+      {{
+        (update_results.results | default([]))
+        | map(attribute='updated_chunk')
+        | flatten
+        | default([])
+      }}
+
+# ========================================
+# 6. RETURN COMBINED RESULT
+# ========================================
+- name: Combine created + updated
+  set_fact:
+    "{{ result_var }}": "{{ created_objects + updated_objects }}"
+
+- name: Debug final result
+  debug:
+    msg: |
+      Upsert complete:
+        Created: {{ created_objects | length }}
+        Updated: {{ updated_objects | length }}
+        Total: {{ (created_objects + updated_objects) | length }}
+  when: debug_mode
