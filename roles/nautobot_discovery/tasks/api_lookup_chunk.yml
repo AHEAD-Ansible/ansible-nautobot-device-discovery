@@ -1,11 +1,61 @@
 ---
-- name: Perform chunk lookup
-  include_tasks: api_lookup.yml
-  vars:
-    lookup_endpoint: "{{ endpoint }}"
-    lookup_filters: "{{ chunk + (extra_filters_list | default([])) }}"
-    var_name: chunk_results
+# UNIVERSAL CHUNKED LOOKUP HELPER
+# Handles batching, URL safety, retries, and merges results.
 
-- name: Accumulate chunk results immediately
+- name: Validate required vars
+  assert:
+    that:
+      - lookup_endpoint is defined
+      - lookup_endpoint.path is defined
+      - lookup_filters_input is defined and lookup_filters_input | length > 0
+      - result_var is defined
+    fail_msg: "api_lookup_chunk: missing required vars"
+
+- name: Prepare extra filters
   set_fact:
-    existing_objects: "{{ existing_objects + (chunk_results | default([])) }}"
+    __lookup_extra_filters_list: "{{ lookup_extra_lookup_filters | default({}) | dict2items | default([]) }}"
+
+- name: Initialize query params
+  set_fact:
+    __lookup_query_params: []
+
+- name: Add filters and extras
+  set_fact:
+    __lookup_query_params: "{{ __lookup_query_params + [ f.key ~ '=' ~ f.value ] }}"
+  loop: "{{ lookup_filters_input + __lookup_extra_filters_list }}"
+  loop_control:
+    loop_var: f
+    label: "{{ f.key }}={{ f.value }}"
+
+- name: Build query string
+  set_fact:
+    __lookup_query_string: "{{ __lookup_query_params | join('&') }}"
+
+- name: Fail early if query too long
+  fail:
+    msg: "Query too long ({{ __lookup_query_string | length }} chars)"
+  when: __lookup_query_string | length > 1500
+
+- name: Perform lookup request
+  uri:
+    url: "{{ nautobot_url.rstrip('/') }}/api/{{ lookup_endpoint.path.lstrip('/') }}?{{ __lookup_query_string }}"
+    method: GET
+    headers:
+      Accept: "application/json"
+      Content-Type: "application/json"
+      Authorization: "Token {{ nautobot_token }}"
+    return_content: true
+    status_code: [200]
+    validate_certs: false
+  register: __lookup_exec_result
+  retries: 3
+  delay: 1
+  until: __lookup_exec_result.status == 200
+
+# Return results directly as a flat list
+- name: Set flat lookup results as fact
+  set_fact:
+    existing_objects: >-
+      {{
+        (__lookup_exec_result.json.results | default([])) | flatten | list
+      }}
