@@ -6,7 +6,12 @@
 
 - name: Build lookup filters as list[dict]
   set_fact:
-    "{{ result_var }}": "{{ _json | from_json }}"
+    "{{ result_var }}": >-
+      {{
+        _json
+        if (_json is iterable and _json is not string)
+        else (_json | from_json)
+      }}
   vars:
     _json: >-
       [

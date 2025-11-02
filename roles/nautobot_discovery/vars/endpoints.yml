@@ -75,11 +75,13 @@ endpoints:
     required_fields: [address, status, namespace]
     slug_from: null
     lookup_key: address
+    unique_together: [namespace, address]
   prefixes:
     path: /ipam/prefixes/
     required_fields: [prefix, namespace, status]
     slug_from: null
     lookup_key: prefix
+    unique_together: [namespace, prefix]
   vrfs:
     path: /ipam/vrfs/
     required_fields: [name, rd]
@@ -90,17 +92,27 @@ endpoints:
     required_fields: [name, vid, location, status]
     slug_from: null
     lookup_key: name
+    unique_together: [location, vid]
   ip_address_to_interface:
     path: /ipam/ip-address-to-interface/
-    required_fields: [ ip_address, interface ]              # or vm_interface one is required
-    optional_fields: [vm_interface, is_source, is_destination, is_default, is_preferred, is_primary, is_secondary, is_standby ]
+    required_fields: [ ip_address, interface ]
+    optional_fields: [ is_source, is_destination, is_default, is_preferred, is_primary, is_secondary, is_standby ]
     slug_from: null
     lookup_key: id
+    unique_together: [ip_address, vm_interface]
+  ip_address_to_vm_interface:
+    path: /ipam/ip-address-to-interface/
+    required_fields: [ ip_address, interface ]
+    optional_fields: [ is_source, is_destination, is_default, is_preferred, is_primary, is_secondary, is_standby ]
+    slug_from: null
+    lookup_key: id
+    unique_together: [ ip_address, vm_interface ]
   vrf_prefix_assignments:
     path: /ipam/vrf-prefix-assignments/
     required_fields: [ vrf, prefix ]
     slug_from: null
     lookup_key: id
+    unique_together: [vrf, prefix]
   vrf_device_assignments:
     path: /ipam/vrf-device-assignments/
     required_fields: [ vrf ]

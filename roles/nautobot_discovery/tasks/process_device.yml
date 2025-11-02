@@ -158,50 +158,6 @@
   set_fact:
     vrf_ids: "{{ dict(unique_vrfs | zip(final_vrfs | map(attribute='id'))) }}"
   when: unique_vrfs | length > 0
-# ------------------------------------------------------------------
-# VRF-Device assignments – bulk upsert
-# ------------------------------------------------------------------
-- name: Collect unique device VRFs
-  set_fact:
-    unique_device_vrfs: >-
-      {{ device.interfaces | default([]) | map(attribute='vrf') | select('defined') | unique | list }}
-
-- name: Initialize desired VRF-device assignment list
-  set_fact:
-    desired_vrf_assignments: []
-  when: unique_device_vrfs | length > 0
-
-- name: Build desired VRF-device assignment bodies
-  set_fact:
-    desired_vrf_assignments: >-
-      {{ desired_vrf_assignments + [{
-          'vrf': {'id': vrf_ids[item]},
-          'device': {'id': device_id}
-        }] }}
-  loop: "{{ unique_device_vrfs }}"
-  loop_control:
-    loop_var: item
-  when: unique_device_vrfs | length > 0
-
-- name: Build VRF-device assignment lookup filters (by vrf id)
-  include_tasks: utils_build_lookup_filters.yml
-  vars:
-    values: "{{ unique_device_vrfs | map('extract', vrf_ids) | list }}"
-    override_key: "vrf"
-    result_var: vrf_assign_lookup_filters
-  when: desired_vrf_assignments | length > 0
-
-- name: Upsert VRF-device assignments in bulk
-  include_tasks: api_upsert.yml
-  vars:
-    endpoint: "{{ endpoints.vrf_device_assignments }}"
-    desired_bodies: "{{ desired_vrf_assignments }}"
-    unique_key: "vrf.id"
-    lookup_filters_input: "{{ vrf_assign_lookup_filters }}"
-    extra_lookup_filters:
-      device: "{{ device_id }}"
-    result_var: final_vrf_assignments
-  when: desired_vrf_assignments | length > 0
 
 # ------------------------------------------------------------------
 # VLANs – bulk upsert
@@ -545,5 +501,171 @@
     result_var: final_prefix_assignments
   when: desired_prefix_assignments | length > 0
 
-- include_tasks: process_ips.yml
-  when: device.interfaces | default([]) | length > 0 or device.primary_ip4 is defined
+# ------------------------------------------------------------------
+# IPs – bulk upsert without assignments
+# ------------------------------------------------------------------
+- name: Build IP lookup filters
+  include_tasks: utils_build_lookup_filters.yml
+  vars:
+    endpoint: "{{ endpoints.ip_addresses }}"
+    values: "{{ desired_ips | map(attribute='address') | unique | list }}"
+    result_var: ip_lookup_filters
+  when: desired_ips | length > 0
+
+- name: Upsert IP addresses in bulk
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint: "{{ endpoints.ip_addresses }}"
+    desired_bodies: "{{ desired_ips }}"
+    unique_key: "address"
+    lookup_filters_input: "{{ ip_lookup_filters }}"
+    extra_lookup_filters:
+      namespace: "{{ nautobot_namespace }}"
+    result_var: final_ips
+  when: desired_ips | length > 0
+
+- name: Build ip_ids map
+  set_fact:
+    ip_ids: "{{ dict(final_ips | map(attribute='address') | zip(final_ips | map(attribute='id'))) }}"
+  when: desired_ips | length > 0
+
+# ------------------------------------------------------------------
+# IP-Interface assignments – bulk upsert
+# ------------------------------------------------------------------
+- name: Build ip_to_intf map from interface ip_addresses
+  set_fact:
+    ip_to_intf: >-
+      {{
+        dict(
+          device.interfaces | default([]) |
+          map('json_query', '[].{ip: ip_addresses[], intf: name}') |
+          flatten |
+          rejectattr('ip', 'none') |
+          map('json_query', '[*].{ip: ip, intf: interface_ids[intf]}') |
+          flatten |
+          map('json_query', '[*].{key: ip, value: intf}') |
+          items2dict
+        )
+      }}
+  when:
+    - device.interfaces is defined
+    - interface_ids is defined
+
+# Build lookup filters for the *ip_address* side (the endpoint supports filtering by ip_address)
+- name: Build IP-assignment lookup filters (by ip_address id)
+  include_tasks: utils_build_lookup_filters.yml
+  vars:
+    values: "{{ final_ips | map(attribute='id') | list }}"
+    override_key: "ip_address"
+    result_var: ip_assign_lookup_filters
+  when: desired_ip_assignments | default([]) | length > 0
+
+# ------------------------------------------------------------------
+# IP-Interface assignments – bulk upsert (with is_primary for ansible_host)
+# ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# 1. Determine the primary IP (prefer device.primary_ip4, fallback to ansible_host)
+# ------------------------------------------------------------------
+- name: Resolve primary IP address
+  set_fact:
+    resolved_primary_ip: >-
+      {% if device.primary_ip4 is defined and (device.primary_ip4 | trim | nautobot_is_ip) %}
+        {{ device.primary_ip4 | trim }}
+      {% elif ansible_host is defined and (ansible_host | trim | nautobot_is_ip) %}
+        {{ ansible_host | trim }}
+      {% else %}
+        {{ none }}
+      {% endif %}
+
+# ------------------------------------------------------------------
+# 2. Build ip_to_intf map (interface IPs + primary if mgmt exists)
+# ------------------------------------------------------------------
+- name: Initialize IP to interface map
+  set_fact:
+    ip_to_intf: {}
+
+- name: Add interface IPs to map
+  set_fact:
+    ip_to_intf: "{{ ip_to_intf | combine({item.1: interface_ids[item.0.name]}) }}"
+  loop: "{{ device.interfaces | default([]) | subelements('ip_addresses', skip_missing=True) }}"
+  loop_control:
+    loop_var: item
+  when:
+    - device.interfaces is defined
+    - item.0.name in interface_ids
+    - item.1 | trim | nautobot_is_ip
+
+- name: Add primary IP to mgmt interface if applicable
+  set_fact:
+    ip_to_intf: >-
+      {{ ip_to_intf | combine({resolved_primary_ip: interface_ids['mgmt']}) }}
+  when:
+    - resolved_primary_ip is not none
+    - "'mgmt' in interface_ids"
+    - resolved_primary_ip not in ip_to_intf
+
+# ------------------------------------------------------------------
+# 3. Build desired assignment bodies (with is_primary for primary IP)
+# ------------------------------------------------------------------
+- name: Initialize desired_ip_assignments
+  set_fact:
+    desired_ip_assignments: []
+
+- name: Build desired IP-Interface assignment bodies
+  set_fact:
+    desired_ip_assignments: "{{ desired_ip_assignments + [assign_body] }}"
+  vars:
+    assign_body: >-
+      {{
+        {
+          'ip_address': {'id': ip_ids[ip_str]},
+          'interface':  {'id': intf_id},
+          'is_primary': (ip_str == resolved_primary_ip)
+        }
+      }}
+  loop: "{{ ip_to_intf | dict2items }}"
+  loop_control:
+    loop_var: item
+  vars:
+    ip_str: "{{ item.key }}"
+    intf_id: "{{ item.value }}"
+  when:
+    - ip_str in ip_ids
+    - ip_str | trim | nautobot_is_ip
+
+# ------------------------------------------------------------------
+# 4. Build lookup filters by ip_address.id
+# ------------------------------------------------------------------
+- name: Build IP-assignment lookup filters (by ip_address id)
+  include_tasks: utils_build_lookup_filters.yml
+  vars:
+    values: "{{ final_ips | map(attribute='id') | list }}"
+    override_key: "ip_address"
+    result_var: ip_assign_lookup_filters
+  when: desired_ip_assignments | default([]) | length > 0
+
+# ------------------------------------------------------------------
+# 5. Bulk UPSERT assignments (create + update is_primary)
+# ------------------------------------------------------------------
+- name: Upsert IP-Interface assignments in bulk (with is_primary)
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint: "{{ endpoints.ip_address_to_interface }}"
+    desired_bodies: "{{ desired_ip_assignments }}"
+    unique_key: "ip_address.id"
+    lookup_filters_input: "{{ ip_assign_lookup_filters }}"
+    result_var: final_ip_assignments
+  when: desired_ip_assignments | default([]) | length > 0
+
+# ------------------------------------------------------------------
+# 6. (Optional) Debug
+# ------------------------------------------------------------------
+- name: Debug IP-Interface assignments
+  debug:
+    msg: |
+      IP-Interface assignments:
+        Total desired: {{ desired_ip_assignments | length }}
+        Primary IP: {{ resolved_primary_ip | default('none') }}
+        Assigned to mgmt: {{ "'mgmt' in interface_ids" }}
+  when: nautobot_discovery_debug | default(false)
