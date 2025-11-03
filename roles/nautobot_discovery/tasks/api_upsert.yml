@@ -51,7 +51,7 @@
     endpoint_path: "{{ endpoint.path }}"
 
 # ========================================
-# 3. OPTIONAL: BUILD LOOKUP FILTERS FROM DESIRED_BODIES
+# 3. BUILD LOOKUP FILTERS FROM DESIRED_BODIES
 # ========================================
 - name: Auto-build lookup filters from unique keys
   set_fact:
@@ -64,7 +64,6 @@
           }{% if not loop.last %},{% endif %}
         {% endfor %}
       ]
-  when: lookup_filters_input is not defined and desired_bodies | length > 0
 
 - name: Validate lookup filters now exist if needed
   assert:
@@ -158,3 +157,20 @@
             update_results.results | default([])
           )
       }}
+
+# ========================================
+# 9. CLEANUP (prevent cross-contamination between upserts)
+# ========================================
+- name: Cleanup temporary upsert facts
+  set_fact:
+    endpoint: null
+    endpoint_path: null
+    lookup_filters_input: null
+    __lookup_chunks: null
+    existing_objects: null
+    existing_map: null
+    results: null
+    create_bodies: null
+    update_bodies: null
+    create_results: null
+    update_results: null
