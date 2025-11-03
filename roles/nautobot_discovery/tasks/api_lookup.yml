@@ -89,7 +89,7 @@
     status_code: 200
   register: api_result
   ignore_errors: "{{ continue_on_error | bool }}"
-  retries: 3
+  retries: "{{ nautobot_discovery_retry_attempts }}"
   delay: 5
 
 # ---------------------------------------------------------------------

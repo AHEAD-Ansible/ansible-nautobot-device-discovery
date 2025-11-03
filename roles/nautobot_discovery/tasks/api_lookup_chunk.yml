@@ -55,7 +55,7 @@
     status_code: [200]
     validate_certs: false
   register: __lookup_exec_result
-  retries: 3
+  retries: "{{ nautobot_discovery_retry_attempts }}"
   delay: 1
   until: __lookup_exec_result.status == 200
 
