@@ -18,12 +18,11 @@
   include_vars:
     file: "{{ role_path }}/vars/endpoints.yml"
     name: all_endpoints
+  when: all_endpoints is not defined
 
 - name: Set endpoint definition
   set_fact:
     endpoint: "{{ all_endpoints.endpoints[endpoint_name] }}"
-  when: endpoint is not defined and endpoint_name is defined
-
 
 # ========================================
 # 1. VALIDATE DESIRED_BODIES AGAINST ENDPOINT SCHEMA

@@ -139,44 +139,52 @@
     vrf_ids: "{{ dict(unique_vrfs | zip(final_vrfs | map(attribute='id'))) }}"
   when: unique_vrfs | length > 0
 
-## ------------------------------------------------------------------
-## VLANs – SINGLE CALL UPSERT (NEW)
-## ------------------------------------------------------------------
-#- name: Collect unique VLANs
-#  set_fact:
-#    unique_vlans: >-
-#      {{ (device.vlans | default([]) +
-#          device.interfaces | default([]) |
-#          map(attribute='vlan') | select('defined')) |
-#         unique | list }}
-#
-#- name: Build desired VLAN bodies
-#  set_fact:
-#    desired_vlans: >-
-#      {{ [{
-#          'name': item,
-#          'vid': 1,
-#          'location': {'id': location.id},
-#          'status': nautobot_status
-#      } for item in unique_vlans] }}
-#  when: unique_vlans | length > 0
-#
-#- name: Upsert VLANs (single call)
-#  include_tasks: api_upsert.yml
-#  vars:
-#    endpoint: "{{ endpoints.vlans }}"
-#    desired_bodies: "{{ desired_vlans }}"
-#    values: "{{ unique_vlans }}"                   # Auto-builds ?name=...
-#    result_var: final_vlans
-#    extra_lookup_filters:
-#      location: "{{ location.id }}"
-#  when: unique_vlans | length > 0
-#
-#- name: Build vlan_ids map
-#  set_fact:
-#    vlan_ids: "{{ dict(unique_vlans | zip(final_vlans | map(attribute='id'))) }}"
-#  when: unique_vlans | length > 0
-#
+# ------------------------------------------------------------------
+# VLANs – SINGLE CALL UPSERT (WORKING)
+# ------------------------------------------------------------------
+- name: Collect unique VLANs
+  set_fact:
+    unique_vlans: >-
+      {{
+        (device.vlans | default([])) +
+        (device.interfaces | default([]) | map(attribute='vlan') | select('defined') | list)
+        | unique
+        | list
+      }}
+  when: device.vlans is defined or (device.interfaces is defined and device.interfaces | length > 0)
+
+- name: Build desired VLAN bodies
+  set_fact:
+    desired_vlan_bodies: "{{ _bodies }}"
+  vars:
+    _bodies: >-
+      {% set result = [] %}
+      {% for v in unique_vlans %}
+      {% set _ = result.append({
+          'name': v,
+          'vid': v | int,
+          'location': { 'id': location.id },
+          'status': nautobot_status
+        }) %}
+      {% endfor %}
+      {{ result }}
+  when: unique_vlans | length > 0
+
+- name: Upsert VLANs (single call)
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: "vlans"
+    desired_bodies: "{{ desired_vlan_bodies }}"
+    result_var: final_vlans
+    extra_lookup_filters:
+      location: "{{ location.id }}"
+  when: unique_vlans | length > 0
+
+- name: Build vlan_ids map (name → id)
+  set_fact:
+    vlan_ids: "{{ dict(unique_vlans | zip(final_vlans | map(attribute='id'))) }}"
+  when: unique_vlans | length > 0
+
 ## ------------------------------------------------------------------
 ## Interfaces – SINGLE CALL UPSERT (NEW)
 ## ------------------------------------------------------------------
