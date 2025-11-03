@@ -8,114 +8,275 @@ endpoints:
   namespaces:
     path: /ipam/namespaces/
     required_fields: [name]
+    optional_fields: [description, tags]
     slug_from: null
     lookup_key: name
+    object_type: ipam.namespace
+
   manufacturers:
     path: /dcim/manufacturers/
     required_fields: [name]
+    optional_fields: [description, tags]
     slug_from: name
     lookup_key: name
+    object_type: dcim.manufacturer
+
   platforms:
     path: /dcim/platforms/
     required_fields: [name, manufacturer]
+    optional_fields: [description, napalm_driver, config_template, tags]
     slug_from: name
     lookup_key: name
+    object_type: dcim.platform
+    relationships:
+      manufacturer: dcim.manufacturer
+
   device_roles:
     path: /extras/roles/
     required_fields: [name, color, content_types]
+    optional_fields: [description, vm_role, tags]
     slug_from: name
     lookup_key: name
+    object_type: extras.role
+
   device_types:
     path: /dcim/device-types/
     required_fields: [model, manufacturer, u_height]
+    optional_fields: [part_number, is_full_depth, subdevice_role, airflow, comments, tags]
     slug_from: model
     lookup_key: model
+    object_type: dcim.devicetype
+    relationships:
+      manufacturer: dcim.manufacturer
+
   tenants:
     path: /tenancy/tenants/
     required_fields: [name]
+    optional_fields: [description, comments, tags]
     slug_from: name
     lookup_key: name
+    object_type: tenancy.tenant
+
   software_versions:
     path: /dcim/software-versions/
-    required_fields: [version, platform]
+    required_fields: [ version, platform ]
+    optional_fields: [ alias, documentation_url, release_date, end_of_support_date, long_term_support, pre_release, tags ]
     slug_from: version
     lookup_key: version
+    object_type: dcim.softwareversion
+    relationships:
+      platform: dcim.platform
+
   location_types:
     path: /dcim/location-types/
-    required_fields: [name, content_types]
+    required_fields: [ name, content_types ]
+    optional_fields: [ parent, description, nestable, tags ]
     slug_from: name
     lookup_key: name
+    object_type: dcim.locationtype
+    relationships:
+      parent: dcim.locationtype
+
   locations:
     path: /dcim/locations/
     required_fields: [name, location_type, status]
+    optional_fields: [parent, facility, asn, time_zone, tenant, contacts, tags]
     slug_from: name
     lookup_key: name
+    object_type: dcim.location
+    relationships:
+      location_type: dcim.locationtype
+      tenant: tenancy.tenant
+
   racks:
     path: /dcim/racks/
-    required_fields: [name, location, status, u_height, type, width]
+    required_fields: [ name, location, status, u_height, type, width ]
+    optional_fields: [ facility_id, role, tenant, serial, asset_tag, outer_width, outer_depth, outer_unit, comments, tags ]
     slug_from: name
     lookup_key: name
+    object_type: dcim.rack
+    relationships:
+      location: dcim.location
+      role: extras.role
+      tenant: tenancy.tenant
+
   tags:
     path: /extras/tags/
-    required_fields: [name, content_types]
+    required_fields: [ name, content_types ]
+    optional_fields: [ color, description, comments ]
     slug_from: name
     lookup_key: name
+    object_type: extras.tag
+
   devices:
     path: /dcim/devices/
-    required_fields: [name, device_type, role, location, status, serial]
+    required_fields: [ name, device_type, role, location, status ]
+    optional_fields: [ serial, asset_tag, tenant, platform, rack, position, primary_ip4, primary_ip6, cluster, comments, tags ]
     slug_from: null
     lookup_key: name
+    object_type: dcim.device
+    relationships:
+      device_type: dcim.devicetype
+      role: extras.role
+      location: dcim.location
+      tenant: tenancy.tenant
+      platform: dcim.platform
+      rack: dcim.rack
+      primary_ip4: ipam.ipaddress
+      primary_ip6: ipam.ipaddress
+
   interfaces:
     path: /dcim/interfaces/
-    required_fields: [device, name, type, enabled, status]
+    required_fields: [ device, name, type, enabled, status ]
+    optional_fields: [ description, label, mac_address, mtu, mode, parent_interface, lag, vrf, tags ]
     slug_from: null
     lookup_key: name
+    object_type: dcim.interface
+    relationships:
+      device: dcim.device
+      parent_interface: dcim.interface
+      lag: dcim.interface
+      vrf: ipam.vrf
+
   ip_addresses:
     path: /ipam/ip-addresses/
-    required_fields: [address, status, namespace]
+    required_fields: [ address, status, namespace ]
+    optional_fields: [ vrf, tenant, role, dns_name, description, tags ]
     slug_from: null
     lookup_key: address
-    unique_together: [namespace, address]
+    unique_together: [ namespace, address ]
+    object_type: ipam.ipaddress
+    relationships:
+      namespace: ipam.namespace
+      vrf: ipam.vrf
+      tenant: tenancy.tenant
+      role: extras.role
+
   prefixes:
     path: /ipam/prefixes/
     required_fields: [prefix, namespace, status]
+    optional_fields:
+      - location
+      - vlan
+      - vrf
+      - tenant
+      - role
+      - rir
+      - description
+      - is_pool
+      - mark_utilized
+      - date_allocated
+      - tags
+      - custom_fields
     slug_from: null
     lookup_key: prefix
     unique_together: [namespace, prefix]
+    object_type: ipam.prefix
+    relationships:
+      namespace: ipam.namespace
+      status: extras.status
+      location: dcim.location
+      vlan: ipam.vlan
+      vrf: ipam.vrf
+      tenant: tenancy.tenant
+      role: extras.role
+      rir: ipam.rir
+
   vrfs:
     path: /ipam/vrfs/
-    required_fields: [name, rd]
+    required_fields: [ name, rd ]
+    optional_fields:
+      - namespace
+      - tenant
+      - enforce_unique
+      - description
+      - tags
+      - custom_fields
     slug_from: name
     lookup_key: rd
+    object_type: ipam.vrf
+    relationships:
+      namespace: ipam.namespace
+      tenant: tenancy.tenant
+
   vlans:
     path: /ipam/vlans/
-    required_fields: [name, vid, location, status]
+    required_fields: [ name, vid, location, status ]
+    optional_fields:
+      - role
+      - tenant
+      - description
+      - tags
+      - custom_fields
     slug_from: null
     lookup_key: name
-    unique_together: [location, vid]
+    unique_together: [ location, vid ]
+    object_type: ipam.vlan
+    relationships:
+      location: dcim.location
+      status: extras.status
+      role: extras.role
+      tenant: tenancy.tenant
+
   ip_address_to_interface:
     path: /ipam/ip-address-to-interface/
-    required_fields: [ ip_address, interface ]
-    optional_fields: [ is_source, is_destination, is_default, is_preferred, is_primary, is_secondary, is_standby ]
+    required_fields: [ip_address, interface]
+    optional_fields:
+      - is_source
+      - is_destination
+      - is_default
+      - is_preferred
+      - is_primary
+      - is_secondary
+      - is_standby
+    slug_from: null
+    lookup_key: id
+    unique_together: [ip_address, interface]
+    object_type: ipam.ipaddresstointerface
+    relationships:
+      ip_address: ipam.ipaddress
+      interface: dcim.interface
+
+  ip_address_to_vm_interface:
+    path: /ipam/ip-address-to-interface/
+    required_fields: [ip_address, vm_interface]
+    optional_fields:
+      - is_source
+      - is_destination
+      - is_default
+      - is_preferred
+      - is_primary
+      - is_secondary
+      - is_standby
     slug_from: null
     lookup_key: id
     unique_together: [ip_address, vm_interface]
-  ip_address_to_vm_interface:
-    path: /ipam/ip-address-to-interface/
-    required_fields: [ ip_address, interface ]
-    optional_fields: [ is_source, is_destination, is_default, is_preferred, is_primary, is_secondary, is_standby ]
-    slug_from: null
-    lookup_key: id
-    unique_together: [ ip_address, vm_interface ]
+    object_type: ipam.ipaddresstointerface
+    relationships:
+      ip_address: ipam.ipaddress
+      vm_interface: virtualization.vminterface
+
   vrf_prefix_assignments:
     path: /ipam/vrf-prefix-assignments/
-    required_fields: [ vrf, prefix ]
+    required_fields: [vrf, prefix]
+    optional_fields: []
     slug_from: null
     lookup_key: id
     unique_together: [vrf, prefix]
+    object_type: ipam.vrfprefixassignment
+    relationships:
+      vrf: ipam.vrf
+      prefix: ipam.prefix
+
   vrf_device_assignments:
     path: /ipam/vrf-device-assignments/
-    required_fields: [ vrf ]
-    optional_fields: [ device, virtual_machine, virtual_device_context, name, rd ]
+    required_fields: [vrf]
+    optional_fields: [device, virtual_machine, virtual_device_context, name, rd]
     slug_from: null
     lookup_key: id
+    object_type: ipam.vrfdeviceassignment
+    relationships:
+      vrf: ipam.vrf
+      device: dcim.device
+      virtual_machine: virtualization.virtualmachine
+      virtual_device_context: dcim.virtualdevicecontext

@@ -1,290 +1,124 @@
-# roles/nautobot_discovery/tasks/api_upsert.yml
 ---
-# === UNIVERSAL UPSERT: Supports list of unique_keys (dotted) ===
-# REQUIRED:
-#   - endpoint
-#   - desired_bodies: list[dict]
-#   - lookup_filters_input: list[dict] → [{'key': 'rd', 'value': '0'}, ...]
-#   - result_var: str
-# OPTIONAL:
-#   - batch_size (default: 50)
-#   - extra_lookup_filters: dict
-#   - debug_mode (via nautobot_discovery_debug)
+# UNIVERSAL BULK UPSERT (DRY Version)
+# Can be invoked with just endpoint_name, desired_bodies, and result_var.
 
-- name: Validate required vars
+# INPUTS:
+#   - endpoint_name: string (e.g., "vrfs")
+#   - desired_bodies: list[dict]
+#   - result_var: string
+# OPTIONAL:
+#   - override_lookup_key
+#   - extra_lookup_filters
+#   - batch_size, debug_mode
+
+# ========================================
+# 0. LOAD ENDPOINT METADATA
+# ========================================
+- name: Load endpoints.yml once
+  include_vars:
+    file: "{{ role_path }}/vars/endpoints.yml"
+    name: all_endpoints
+
+- name: Set endpoint definition
+  set_fact:
+    endpoint: "{{ all_endpoints.endpoints[endpoint_name] }}"
+  when: endpoint is not defined and endpoint_name is defined
+
+
+# ========================================
+# 1. VALIDATE DESIRED_BODIES AGAINST ENDPOINT SCHEMA
+# ========================================
+- name: Validate required fields presence
   assert:
     that:
-      - endpoint is defined
-      - endpoint.path is defined
-      - desired_bodies is defined
-      - lookup_filters_input is defined and lookup_filters_input is iterable and lookup_filters_input | length > 0
-      - result_var is defined
-    fail_msg: "api_upsert: missing required vars"
+      - desired_bodies | length > 0
+      - desired_bodies | map(attribute=field) | select('defined') | list | length == desired_bodies | length
+    fail_msg: "api_upsert: Missing one or more required fields for endpoint {{ endpoint_name }}. Required: {{ endpoint.required_fields }}"
+  loop: "{{ endpoint.required_fields }}"
+  loop_control:
+    loop_var: field
+  when: desired_bodies | length > 0
 
+
+# ========================================
+# 2. SET DEFAULTS FROM ENDPOINT OR GLOBAL VARS
+# ========================================
 - name: Set defaults
   set_fact:
-    batch_size: "{{ nautobot_discovery_bulk_chunk_size }}"
-    debug_mode: "{{ nautobot_discovery_debug | default(false) }}"
+    batch_size: "{{ batch_size | default(nautobot_discovery_bulk_chunk_size | default(50)) }}"
+    debug_mode: "{{ debug_mode | default(nautobot_discovery_debug | default(false)) }}"
     unique_keys: "{{ endpoint.unique_keys | default(endpoint.unique_together | default([endpoint.lookup_key | default('name')])) }}"
+    lookup_key: "{{ override_lookup_key | default(endpoint.lookup_key | default('name')) }}"
+    endpoint_path: "{{ endpoint.path }}"
 
 # ========================================
-# 1. LOOKUP EXISTING (chunked)
+# 3. OPTIONAL: BUILD LOOKUP FILTERS FROM DESIRED_BODIES
 # ========================================
-
-- name: Prepare extra filters safely
+- name: Auto-build lookup filters from unique keys
   set_fact:
-    __upsert_extra_filters_list: "{{ extra_lookup_filters | default({}) | dict2items }}"
-  when: extra_lookup_filters is defined
+    lookup_filters_input: >-
+      [
+        {% for body in desired_bodies %}
+          {
+            "key": {{ unique_keys | to_json }},
+            "value": {{ unique_keys | map('extract', body) | select('defined') | join(':') | to_json }}
+          }{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]
+  when: lookup_filters_input is not defined and desired_bodies | length > 0
 
-- name: Initialize existing objects
+- name: Validate lookup filters now exist if needed
+  assert:
+    that:
+      - lookup_filters_input is defined and lookup_filters_input is iterable and lookup_filters_input | length > 0 or desired_bodies | length == 0
+    fail_msg: "api_upsert: lookup_filters_input required if desired_bodies non-empty"
+  when: desired_bodies | length > 0
+
+# ========================================
+# 4. CHUNKED LOOKUP OF EXISTING OBJECTS
+# ========================================
+- name: Initialize existing_objects
   set_fact:
     existing_objects: []
 
-- name: Build chunked filter batches for lookup
+- name: Build chunked lookup filters
   set_fact:
-    __lookup_chunks: "{{ lookup_filters_input | batch(batch_size | default(nautobot_discovery_bulk_chunk_size | default(50))) | list }}"
+    __lookup_chunks: "{{ lookup_filters_input | batch(batch_size) | list }}"
 
 - name: Lookup existing objects (chunked)
   include_tasks: api_lookup_chunk.yml
   loop: "{{ __lookup_chunks }}"
   loop_control:
     loop_var: __lookup_chunk
-    label: "chunk with {{ __lookup_chunk | length }} filters"
   vars:
     lookup_endpoint: "{{ endpoint }}"
     lookup_filters_input: "{{ __lookup_chunk }}"
     lookup_extra_lookup_filters: "{{ extra_lookup_filters | default({}) }}"
-    result_var: "__lookup_results_chunk"
-  register: __lookup_all_results
-  when:
-    - lookup_filters_input is defined
-    - lookup_filters_input | length > 0
+  when: lookup_filters_input | length > 0
 
-- name: Merge lookup chunk results
-  set_fact:
-    existing_objects: "{{ existing_objects + (item.existing_objects | default([])) }}"
-  loop: "{{ __lookup_all_results.results }}"
-  when: item.existing_objects is defined
-
-- name: Ensure existing_map always defined
-  set_fact:
-    existing_map: "{{ existing_map | default({}) }}"
+# (No merge needed—appending happens in api_lookup_chunk.yml)
 
 # ========================================
-# 2. BUILD existing_map: composite_key → object
+# 5. BUILD EXISTING MAP
 # ========================================
-- name: Debug unique_keys
-  debug:
-    msg: "Using unique_keys: {{ unique_keys }} for endpoint {{ endpoint.path }}"
-  when: debug_mode | bool
-
-# ---- Extract values for *all* objects in one pass ----
-- name: Extract unique values for each key (existing)
+- name: Build existing_map keyed by unique_keys
   set_fact:
-    _extracted: "{{ existing_objects | map('json_query', key) | list }}"
-  loop: "{{ unique_keys }}"
-  loop_control:
-    loop_var: key
-    index_var: key_idx
-  register: _extracted_per_key
-  when: unique_keys | length > 0
-
-# ---- Build per-object grouped lists using arithmetic slicing ----
-- name: Group extracted values per object (existing)
-  set_fact:
-    _grouped_extracted: "{{ _grouped_extracted | default([]) + [ grouped ] }}"
-  vars:
-    key_count: "{{ unique_keys | length }}"
-    grouped: >-
-      {{
-        _extracted_per_key.results
-        | map(attribute='ansible_facts._extracted')
-        | map('flatten')
-        | zip(*(_extracted_per_key.results | map(attribute='ansible_facts._extracted') | list))
-        | list
-      }}
-  loop: "{{ range(existing_objects | length) | list }}"
-  loop_control:
-    index_var: idx
-  when: unique_keys | length > 0
-
-
-# ---- Build map: composite_key → object ----
-- name: Build existing_map with composite key
-  set_fact:
-    existing_map: "{{ existing_map | default({}) |
-                      combine({ (pair[1] | join(':')): pair[0] }) }}"
-  loop: "{{ existing_objects | zip(_grouped_extracted | default([])) | list }}"
-  loop_control:
-    loop_var: pair
-    label: "{{ pair[0].name | default('unknown') }}"
-  when:
-    - unique_keys | length > 0
-    - pair[1] | length == unique_keys | length
-    - (pair[1] | join(':')) | length > 0
-
-- name: Debug existing_map keys
-  debug:
-    msg: "Existing map keys: {{ existing_map | default({}) | keys | list }}"
-  when: debug_mode | bool
-
-# Fallback for no unique_keys
-- name: Build existing_map as index map (no unique_keys)
-  set_fact:
-    existing_map: "{{ dict(range(existing_objects | length) | zip(existing_objects)) }}"
-  when: unique_keys | length == 0
+    existing_map: "{{ existing_objects | build_existing_map(unique_keys) }}"
 
 # ========================================
-# 3. CLASSIFY: CREATE vs UPDATE
+# 6. CLASSIFY CREATES AND UPDATES
 # ========================================
-- name: Initialize create_bodies
+- name: Classify creates and updates
   set_fact:
-    create_bodies: []
+    results: "{{ desired_bodies | classify_upserts(existing_map, unique_keys) }}"
 
-# ---- Extract desired unique values (same pattern) ----
-- name: Extract unique values for each key (desired)
+- name: Extract create and update bodies
   set_fact:
-    _desired_vals: "{{ desired_bodies | map('json_query', key) | list }}"
-  loop: "{{ unique_keys }}"
-  loop_control:
-    loop_var: key
-  register: _desired_per_key
-  when: unique_keys | length > 0
-
-# ---- Group desired values per object using slicing ----
-- name: Group extracted values per object (desired)
-  set_fact:
-    _grouped_desired: >-
-      {{
-        _desired_per_key.results
-        | map(attribute='ansible_facts._desired_vals')
-        | list
-        | zip(*(_desired_per_key.results | map(attribute='ansible_facts._desired_vals') | list))
-        | map('list')
-        | list
-      }}
-  when: unique_keys | length > 0
-
-
-- name: Identify objects to create
-  set_fact:
-    create_bodies: "{{ create_bodies + [pair[0]] }}"
-  loop: "{{ desired_bodies | zip(_grouped_desired | default([])) | list }}"
-  loop_control:
-    loop_var: pair
-    label: "{{ pair[0].name | default('undefined') }}"
-  when:
-    - unique_keys | length > 0
-    - pair[1] | length == unique_keys | length
-    - (pair[1] | join(':')) not in (existing_map | default({}) | keys)
-
-- name: Debug create_bodies count
-  debug:
-    msg: "Objects to create: {{ create_bodies | length }}"
-  when: debug_mode | bool
-
-- name: Set all as create_bodies (no unique_keys)
-  set_fact:
-    create_bodies: "{{ desired_bodies }}"
-  when: unique_keys | length == 0
+    create_bodies: "{{ results.creates }}"
+    update_bodies: "{{ results.updates }}"
 
 # ========================================
-# 4. IDENTIFY UPDATES
-# ========================================
-- name: Evaluate updates (with unique_keys)
-  set_fact:
-    _candidate: >-
-      {% set extracted = unique_keys | map('extract', item) | list %}
-      {% set key_str   = extracted | select('defined') | select('ne', '') | join(':') %}
-      {% set existing  = existing_map[key_str] if key_str in existing_map else none %}
-      {% if existing is none %}
-      {{ none }}
-      {% else %}
-      {% set readonly = ['id','url','created','last_updated','display','natural_slug','notes_url','_occupied','_nested','_depth','object_type','custom_fields'] %}
-      {% set desired_clean  = item | dict_exclude(readonly) %}
-      {% set existing_clean = existing | dict_exclude(readonly) %}
-      {% if desired_clean != existing_clean %}
-      {{ desired_clean | combine({'id': existing.id}) }}
-      {% else %}
-      {{ none }}
-      {% endif %}
-      {% endif %}
-  loop: "{{ desired_bodies }}"
-  loop_control:
-    loop_var: item
-  register: _update_candidates
-  when: unique_keys | length > 0
-
-
-- name: Initialize update_bodies
-  set_fact:
-    update_bodies: []
-
-- name: Collect valid update bodies (with unique_keys)
-  set_fact:
-    update_bodies: "{{ update_bodies + [_item.ansible_facts._candidate] }}"
-  loop: "{{ _update_candidates.results }}"
-  loop_control:
-    loop_var: _item
-  when:
-    - unique_keys | length > 0
-    - _item.ansible_facts._candidate is defined
-    - _item.ansible_facts._candidate is not none
-    - _item.ansible_facts._candidate | type_debug == 'dict'
-    - _item.ansible_facts._candidate | length > 0
-
-# ---- No unique_keys fallback (fixed selectattr to map + zip) ----
-- name: Evaluate updates (no unique_keys)
-  set_fact:
-    _candidate: >-
-      {% set readonly = ['id','url','created','last_updated','display','natural_slug','notes_url','_occupied','_nested','_depth','object_type','custom_fields'] %}
-      {% set desired_clean = item | dict_exclude(readonly) %}
-      {% set processed = existing_objects | map('dict_exclude', readonly) | list %}
-      {% set match = (existing_objects | zip(processed) | selectattr('1', 'equalto', desired_clean) | map(attribute='0') | first | default(none)) %}
-      {% if match is not none and desired_clean != (match | dict_exclude(readonly)) %}
-      {{ desired_clean | combine({'id': match.id}) }}
-      {% else %}
-      {{ none }}
-      {% endif %}
-  loop: "{{ desired_bodies }}"
-  register: _update_candidates_no_keys
-  when: unique_keys | length == 0
-
-- name: Collect valid update bodies (no unique_keys)
-  set_fact:
-    update_bodies: "{{ update_bodies + [_item.ansible_facts._candidate] }}"
-  loop: "{{ _update_candidates_no_keys.results | default([]) }}"
-  loop_control:
-    loop_var: _item
-  when:
-    - unique_keys | length == 0
-    - _item.ansible_facts._candidate is defined
-    - _item.ansible_facts._candidate is not none
-    - _item.ansible_facts._candidate | type_debug == 'dict'
-    - _item.ansible_facts._candidate | length > 0
-
-# ========================================
-# 4.5 FINAL SANITIZATION
-# ========================================
-- name: Sanitize create and update bodies before API calls
-  set_fact:
-    create_bodies: >-
-      {{ (create_bodies | default([])) | map('dict2items')
-        | map('rejectattr', 'key', 'in', [
-            'id','url','object_type','notes_url','natural_slug',
-            'display','created','last_updated'
-          ])
-        | map('items2dict') | list }}
-    update_bodies: >-
-      {{ (update_bodies | default([])) | map('dict2items')
-        | map('rejectattr', 'key', 'in', [
-            'id','url','object_type','notes_url','natural_slug',
-            'display','created','last_updated'
-          ])
-        | map('items2dict') | list }}
-
-# ========================================
-# 5. BULK CREATE
+# 7. BULK CREATE / UPDATE
 # ========================================
 - name: Bulk create (chunked)
   include_tasks: api_bulk.yml
@@ -299,13 +133,6 @@
   when: create_bodies | length > 0
   register: create_results
 
-- name: Flatten created
-  set_fact:
-    created_objects: "{{ create_results.results | default([]) | map(attribute='created_chunk') | flatten | default([]) }}"
-
-# ========================================
-# 6. BULK PATCH
-# ========================================
 - name: Bulk patch (chunked)
   include_tasks: api_bulk.yml
   loop: "{{ update_bodies | batch(batch_size) | list }}"
@@ -319,18 +146,16 @@
   when: update_bodies | length > 0
   register: update_results
 
-- name: Flatten updated
-  set_fact:
-    updated_objects: "{{ update_results.results | default([]) | map(attribute='updated_chunk') | flatten | default([]) }}"
-
 # ========================================
-# 8. RETURN RESULT
+# 8. FINAL OUTPUT
 # ========================================
-- name: Combine created + updated
+- name: Build final unified result
   set_fact:
-    "{{ result_var }}": "{{ (created_objects | default([])) + (updated_objects | default([])) }}"
-
-- name: Clear temporary vars
-  set_fact:
-    extra_lookup_filters: {}
-    extra_filters_list: {}
+    "{{ result_var }}": >-
+      {{
+        existing_objects
+        | merge_upsert_results(
+            create_results.results | default([]),
+            update_results.results | default([])
+          )
+      }}

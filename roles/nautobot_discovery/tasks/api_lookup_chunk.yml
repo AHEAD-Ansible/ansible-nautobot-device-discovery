@@ -19,9 +19,16 @@
   set_fact:
     __lookup_query_params: []
 
+# ✅ Only one Add filters and extras task
 - name: Add filters and extras
   set_fact:
-    __lookup_query_params: "{{ __lookup_query_params + [ f.key ~ '=' ~ f.value ] }}"
+    __lookup_query_params: >-
+      {{
+        __lookup_query_params
+        + [
+            ((f.key[0] if (f.key is iterable and f.key is not string) else f.key) ~ '=' ~ f.value)
+          ]
+      }}
   loop: "{{ lookup_filters_input + __lookup_extra_filters_list }}"
   loop_control:
     loop_var: f
@@ -52,10 +59,7 @@
   delay: 1
   until: __lookup_exec_result.status == 200
 
-# Return results directly as a flat list
-- name: Set flat lookup results as fact
+# Append results directly (accumulates across chunks)
+- name: Append lookup results as fact
   set_fact:
-    existing_objects: >-
-      {{
-        (__lookup_exec_result.json.results | default([])) | flatten | list
-      }}
+    existing_objects: "{{ existing_objects | default([]) + (__lookup_exec_result.json.results | default([])) }}"
