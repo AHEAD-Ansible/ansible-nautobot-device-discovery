@@ -47,7 +47,7 @@
 
 - name: Set remaining defaults (including unique_keys)
   set_fact:
-    batch_size: "{{ batch_size | default(nautobot_discovery_bulk_chunk_size | default(50)) }}"
+    batch_size: "{{ nautobot_discovery_bulk_chunk_size }}"
     debug_mode: "{{ debug_mode | default(nautobot_discovery_debug | default(false)) }}"
     unique_keys: >-
       {{

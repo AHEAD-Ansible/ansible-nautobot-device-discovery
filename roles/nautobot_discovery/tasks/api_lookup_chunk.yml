@@ -28,27 +28,19 @@
     __lookup_query_params: []
 
 # -------------------------------------------------
-# 4. BUILD URL‑SAFE FILTERS
-#    • Uses the `build_filter_param` filter (in nautobot_filters.py)
-#    • Automatically adds `_id` for any key listed in endpoint.relationships
-#    • Handles composite keys (e.g. ['location','vid'])
+# 4. BUILD URL-SAFE FILTERS (GROUPED)
 # -------------------------------------------------
-- name: Build URL-safe query params from unique_keys and relationships
+- name: Build grouped query params
   set_fact:
     __lookup_query_params: >-
       {{
-        __lookup_query_params + [
-          item | build_filter_param(
-            lookup_endpoint.relationships | default({}),
-            lookup_endpoint.path,
-            lookup_endpoint.id_filter_fields | default([])
-          )
-        ]
+        (__lookup_query_params | default([])) +
+        [ filter_item | build_filter_param(lookup_endpoint.relationships | default({})) ]
       }}
-  loop: "{{ lookup_filters_input + __lookup_extra_filters_list }}"
+  loop: "{{ lookup_filters_input }}"
   loop_control:
-    loop_var: item
-    label: "{{ item.key }} = {{ item.value }}"
+    loop_var: filter_item
+  when: lookup_filters_input | length > 0
 
 # -------------------------------------------------
 # 5. FINAL QUERY STRING
