@@ -71,6 +71,9 @@ def build_existing_map(objects, unique_keys):
                 val = val.get(part) if isinstance(val, dict) else None
                 if val is None:
                     break
+            # EXTRACT .id FROM DICT
+            if isinstance(val, dict) and 'id' in val:
+                val = val['id']
             parts.append(str(val) if val is not None else '')
         result[':'.join(parts)] = obj
     return result
@@ -149,12 +152,181 @@ def build_lookup_filters(desired_bodies, unique_keys, relationships):
                 val = val.get(part) if isinstance(val, dict) else None
                 if val is None:
                     break
+            # EXTRACT .id IF DICT
+            if isinstance(val, dict) and 'id' in val:
+                val = val['id']
             parts.append(str(val) if val is not None else '')
         result.append({
             'key': filter_keys,
             'value': ':'.join(parts)
         })
     return result
+
+# ----------------------------------------------------------------------
+# 5. extract_parent_prefixes – NEW, RELIABLE, NO JINJA2
+# ----------------------------------------------------------------------
+def extract_parent_prefixes(ip_addresses):
+    """
+    Input: list of strings like ['10.0.2.20/24', '10.0.26.122/20', '10.0.100.1/32', '10.0.100.1']
+    Output: list of unique parent prefixes like ['10.0.2.0/24', '10.0.26.0/20', '10.0.100.1/32']
+    """
+    import ipaddress
+    prefixes = set()
+    for ip in ip_addresses or []:
+        try:
+            iface = ipaddress.ip_interface(ip)
+            prefixes.add(str(iface.network))
+        except Exception:
+            # Skip invalid IPs
+            pass
+    return sorted(list(prefixes))
+
+# ----------------------------------------------------------------------
+# 6. build_prefix_bodies – NEW, FULLY PLUGIN-BASED
+# ----------------------------------------------------------------------
+def build_prefix_bodies(prefixes, namespace_id, status, tenant_id=None):
+    """
+    Input:
+      - prefixes: list of strings like ['10.0.2.0/24', '10.0.26.0/20']
+      - namespace_id: str (e.g. '8c5f4e9f-...')
+      - status: str (e.g. 'Active')
+      - tenant_id: str or None
+    Output:
+      - list of dicts ready for Nautobot API
+    """
+    bodies = []
+    tenant = {'tenant': {'id': tenant_id}} if tenant_id else {}
+    for prefix in prefixes or []:
+        body = {
+            'prefix': prefix,
+            'namespace': {'id': namespace_id},
+            'status': status
+        }
+        body.update(tenant)
+        bodies.append(body)
+    return bodies
+
+# ----------------------------------------------------------------------
+# 7. chunk_list – NEW
+# ----------------------------------------------------------------------
+def chunk_list(items, chunk_size):
+    """
+    Split list into chunks of size <= chunk_size
+    """
+    if not items:
+        return []
+    return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
+# ----------------------------------------------------------------------
+# 8. smart_chunk_for_lookup
+# ----------------------------------------------------------------------
+def smart_chunk_for_lookup(filters, max_url_length=1500):
+    if not filters:
+        return []
+    chunks = []
+    current_chunk = []
+    current_length = 0
+    for f in filters:
+        param = f['key'][0] if isinstance(f['key'], list) else f['key']
+        value = str(f['value'])
+        est_len = len(param) + len(value) + 10
+        if current_chunk and current_length + est_len > max_url_length:
+            chunks.append(current_chunk)
+            current_chunk = [f]
+            current_length = est_len
+        else:
+            current_chunk.append(f)
+            current_length += est_len
+    if current_chunk:
+        chunks.append(current_chunk)
+    return chunks
+
+# ----------------------------------------------------------------------
+# 9. smart_chunk_for_payload
+# ----------------------------------------------------------------------
+def smart_chunk_for_payload(bodies, max_payload_bytes=1024*1024):
+    import json
+    if not bodies:
+        return []
+    chunks = []
+    current_chunk = []
+    current_size = 0
+    for body in bodies:
+        body_size = len(json.dumps(body).encode('utf-8'))
+        if current_chunk and current_size + body_size + 10 > max_payload_bytes:
+            chunks.append(current_chunk)
+            current_chunk = [body]
+            current_size = body_size
+        else:
+            current_chunk.append(body)
+            current_size += body_size + 2
+    if current_chunk:
+        chunks.append(current_chunk)
+    return chunks
+
+# ----------------------------------------------------------------------
+# 10. resolve_unique_keys – NEW, PURE PYTHON
+# ----------------------------------------------------------------------
+def resolve_unique_keys(endpoint, lookup_key):
+    # endpoint is a dict from YAML
+    unique_keys = endpoint.get('unique_keys')
+    if isinstance(unique_keys, (list, tuple)) and len(unique_keys) > 0:
+        return list(unique_keys)
+
+    unique_together = endpoint.get('unique_together')
+    if isinstance(unique_together, (list, tuple)) and len(unique_together) > 0:
+        return list(unique_together)
+
+    return [lookup_key]
+
+# ----------------------------------------------------------------------
+# 11. chunk_prefix_bodies – FULLY PLUGIN-BASED
+# ----------------------------------------------------------------------
+def chunk_prefix_bodies(bodies, nautobot_url, max_url_length=1400, base_url_overhead=50):
+    """
+    Input:
+      - bodies: list of prefix dicts
+      - nautobot_url: full base URL (e.g. "http://nautobot:8080")
+    Output:
+      - list of chunks: [[body1, body2], [body3, ...]]
+    """
+    if not bodies:
+        return []
+
+    import urllib.parse
+
+    # Extract prefixes
+    prefixes = [body['prefix'] for body in bodies]
+
+    # Build URL-safe query estimator
+    base_length = len(nautobot_url.rstrip('/')) + len('/api/ipam/prefixes/?') + base_url_overhead
+
+    def item_to_query(p):
+        return f"prefix={urllib.parse.quote(p)}"
+
+    # Chunk by URL length
+    chunks = []
+    current_chunk = []
+    current_length = base_length
+
+    for prefix, body in zip(prefixes, bodies):
+        query_part = item_to_query(prefix)
+        est_len = len(query_part) + 1  # +1 for '&'
+
+        if current_chunk and current_length + est_len > max_url_length:
+            chunks.append(current_chunk)
+            current_chunk = [body]
+            current_length = base_length + est_len
+        else:
+            current_chunk.append(body)
+            current_length += est_len
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
 
 # ----------------------------------------------------------------------
 # Filter registration
@@ -170,5 +342,11 @@ class FilterModule(object):
             'build_existing_map': build_existing_map,
             'classify_upserts': classify_upserts,
             'merge_upsert_results': merge_upsert_results,
-            'build_lookup_filters': build_lookup_filters
+            'build_lookup_filters': build_lookup_filters,
+            'extract_parent_prefixes': extract_parent_prefixes,
+            'build_prefix_bodies': build_prefix_bodies,
+            'smart_chunk_for_lookup': smart_chunk_for_lookup,
+            'smart_chunk_for_payload': smart_chunk_for_payload,
+            'resolve_unique_keys': resolve_unique_keys,
+            'chunk_prefix_bodies': chunk_prefix_bodies,
         }

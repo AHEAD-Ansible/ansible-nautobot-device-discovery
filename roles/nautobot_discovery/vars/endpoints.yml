@@ -131,7 +131,7 @@ endpoints:
     optional_fields: [ description, label, mac_address, mtu, mode, parent_interface, lag, vrf, tags ]
     slug_from: null
     lookup_key: name
-    unique_together: [ device.id, name ]
+    unique_together: [ device, name ]
     object_type: dcim.interface
     relationships:
       device: dcim.device
@@ -145,7 +145,7 @@ endpoints:
     optional_fields: [ vrf, tenant, role, dns_name, description, tags ]
     slug_from: null
     lookup_key: address
-    unique_together: [ namespace.id, address ]
+    unique_together: [ namespace, address ]
     object_type: ipam.ipaddress
     relationships:
       namespace: ipam.namespace
@@ -191,16 +191,16 @@ endpoints:
     optional_fields:
       - namespace
       - tenant
-      - enforce_unique  # Legacy, ignored in v2+
+      - enforce_unique
       - description
       - tags
       - custom_fields
       - import_targets
       - export_targets
     slug_from: name
-    lookup_key: rd  # <-- CHANGE TO 'rd' (unique per namespace with extra_filter)
-    unique_keys: null  # Explicit: No composite; use single 'rd' + extra namespace filter
-    unique_together: null  # Confirmed: None in model
+    lookup_key: rd
+    unique_keys: null
+    unique_together: null
     object_type: ipam.vrf
     relationships:
       namespace: ipam.namespace
@@ -217,7 +217,7 @@ endpoints:
     optional_fields: [ role, tenant, description, tags, custom_fields ]
     slug_from: null
     lookup_key: name
-    unique_together: [ location.id, vid ]
+    unique_together: [ location, vid ]
     object_type: ipam.vlan
     relationships:
       location: dcim.location
@@ -238,7 +238,7 @@ endpoints:
       - is_standby
     slug_from: null
     lookup_key: id
-    unique_together: [ ip_address.id, interface.id ]
+    unique_together: [ ip_address, interface ]
     object_type: ipam.ipaddresstointerface
     relationships:
       ip_address: ipam.ipaddress
@@ -280,8 +280,8 @@ endpoints:
     required_fields: [ vrf ]
     optional_fields: [ device, virtual_machine, virtual_device_context, name, rd ]
     slug_from: null
-    lookup_key: null
-    unique_together: [ vrf.id, device.id ]
+    lookup_key: vrf
+    unique_together: [ vrf, device ]
     object_type: ipam.vrfdeviceassignment
     relationships:
       vrf: ipam.vrf

@@ -1,5 +1,5 @@
 ---
-# UNIVERSAL BULK UPSERT (DRY Version)
+# UNIVERSAL BULK UPSERT (DRY Version) — DYNAMIC CHUNKING
 # Can be invoked with just endpoint_name, desired_bodies, and result_var.
 
 # INPUTS:
@@ -9,7 +9,7 @@
 # OPTIONAL:
 #   - override_lookup_key
 #   - extra_lookup_filters
-#   - batch_size, debug_mode
+#   - debug_mode
 
 # ========================================
 # 0. LOAD ENDPOINT METADATA
@@ -45,31 +45,10 @@
   set_fact:
     lookup_key: "{{ override_lookup_key | default(endpoint.lookup_key | default('name')) }}"
 
-- name: Set remaining defaults (including unique_keys)
+- name: Resolve unique_keys via plugin
   set_fact:
-    batch_size: "{{ nautobot_discovery_bulk_chunk_size }}"
+    unique_keys: "{{ endpoint | resolve_unique_keys(lookup_key) }}"
     debug_mode: "{{ debug_mode | default(nautobot_discovery_debug | default(false)) }}"
-    unique_keys: >-
-      {{
-        (
-          endpoint.unique_keys
-          if (
-            endpoint.unique_keys is defined
-            and endpoint.unique_keys is not none
-            and endpoint.unique_keys is not mapping
-            and endpoint.unique_keys | length > 0
-          )
-          else endpoint.unique_together
-          if (
-            endpoint.unique_together is defined
-            and endpoint.unique_together is not none
-            and endpoint.unique_together is not mapping
-            and endpoint.unique_together | length > 0
-          )
-          else [lookup_key]
-        )
-        | default([lookup_key])
-      }}
     endpoint_path: "{{ endpoint.path }}"
 
 # ========================================
@@ -88,17 +67,19 @@
   when: desired_bodies | length > 0
 
 # ========================================
-# 4. CHUNKED LOOKUP OF EXISTING OBJECTS
+# 4. DYNAMIC CHUNKED LOOKUP (URL-SAFE)
 # ========================================
 - name: Initialize existing_objects
   set_fact:
     existing_objects: []
 
-- name: Build chunked lookup filters
+- name: Dynamically chunk lookup filters (URL-safe, 1500 chars)
   set_fact:
-    __lookup_chunks: "{{ lookup_filters_input | batch(batch_size) | list }}"
+    __lookup_chunks: >-
+      {{ lookup_filters_input | smart_chunk_for_lookup(1500) }}
+  when: lookup_filters_input | length > 0
 
-- name: Lookup existing objects (chunked)
+- name: Lookup existing objects (dynamic chunks)
   include_tasks: api_lookup_chunk.yml
   loop: "{{ __lookup_chunks }}"
   loop_control:
@@ -115,7 +96,7 @@
 - name: Build existing_map keyed by unique_keys
   set_fact:
     existing_map: "{{ existing_objects | build_existing_map(unique_keys) }}"
-  when: existing_objects | length > 0
+    resolved_unique_keys: "{{ unique_keys }}"
 
 # ========================================
 # 6. CLASSIFY CREATES AND UPDATES
@@ -133,11 +114,18 @@
     update_bodies: "{{ results.updates }}"
 
 # ========================================
-# 8. BULK CREATE / UPDATE
+# 8. DYNAMIC BULK CREATE / UPDATE (JSON-SAFE)
 # ========================================
-- name: Bulk create (chunked)
+# --- CREATE (POST) ---
+- name: Dynamically chunk CREATE bodies (1MB JSON)
+  set_fact:
+    create_chunks: >-
+      {{ create_bodies | smart_chunk_for_payload(1024*1024) }}
+  when: create_bodies | length > 0
+
+- name: Bulk create (dynamic chunks)
   include_tasks: api_bulk.yml
-  loop: "{{ create_bodies | batch(batch_size) | list }}"
+  loop: "{{ create_chunks }}"
   loop_control:
     loop_var: chunk
   vars:
@@ -148,9 +136,16 @@
   when: create_bodies | length > 0
   register: create_results
 
-- name: Bulk patch (chunked)
+# --- UPDATE (PATCH) ---
+- name: Dynamically chunk UPDATE bodies (1MB JSON)
+  set_fact:
+    update_chunks: >-
+      {{ update_bodies | smart_chunk_for_payload(1024*1024) }}
+  when: update_bodies | length > 0
+
+- name: Bulk patch (dynamic chunks)
   include_tasks: api_bulk.yml
-  loop: "{{ update_bodies | batch(batch_size) | list }}"
+  loop: "{{ update_chunks }}"
   loop_control:
     loop_var: chunk
   vars:

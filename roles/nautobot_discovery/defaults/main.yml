@@ -18,7 +18,7 @@ vlan_ids: {}
 rack_u_height: 42
 rack_type: "4-post-frame"
 rack_width: 19
-nautobot_discovery_bulk_chunk_size: 20
+nautobot_discovery_bulk_chunk_size: 10
 nautobot_discovery_retry_attempts: 0
 nautobot_discovery_continue_on_error: false
 nautobot_discovery_debug: false
