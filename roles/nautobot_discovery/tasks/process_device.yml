@@ -103,7 +103,7 @@
       when: namespace_list | length == 0
 
 # ------------------------------------------------------------------
-# VRFs – SINGLE CALL UPSERT (NEW)
+# VRFs – SINGLE CALL UPSERT
 # ------------------------------------------------------------------
 - name: Collect unique VRFs
   set_fact:
@@ -116,13 +116,11 @@
 - name: Build desired VRF bodies
   set_fact:
     desired_vrf_bodies: >-
-      {{
-        unique_vrfs | map('community.general.dict_kv', 'name') |
-        zip(unique_vrfs | map('community.general.dict_kv', 'rd')) |
-        map('combine') |
-        map('combine', {'namespace': {'id': namespace_obj.id}}) |
-        list
-      }}
+      {{ unique_vrfs | map('community.general.dict_kv', 'name') |
+         zip(unique_vrfs | map('community.general.dict_kv', 'rd')) |
+         map('combine') |
+         map('combine', {'namespace': {'id': namespace_obj.id}}) |
+         list }}
 
 - name: Upsert VRFs (single call)
   include_tasks: api_upsert.yml
@@ -137,6 +135,38 @@
 - name: Build vrf_ids map
   set_fact:
     vrf_ids: "{{ dict(unique_vrfs | zip(final_vrfs | map(attribute='id'))) }}"
+  when: unique_vrfs | length > 0
+
+# ------------------------------------------------------------------
+# VRF-to-Device Assignments – REQUIRED BEFORE INTERFACES
+# ------------------------------------------------------------------
+- name: Build VRF-to-Device assignment bodies
+  set_fact:
+    desired_vrf_assignments: []
+  when: unique_vrfs | length > 0
+
+- name: Add VRF-to-Device assignments
+  set_fact:
+    desired_vrf_assignments: >-
+      {{ desired_vrf_assignments + [
+           {
+             'vrf': {'id': vrf_ids[item]},
+             'device': {'id': device_id}
+           }
+         ] }}
+  loop: "{{ unique_vrfs }}"
+  loop_control:
+    loop_var: item
+  when: unique_vrfs | length > 0
+
+- name: Upsert VRF-to-Device assignments
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: "vrf_device_assignments"
+    desired_bodies: "{{ desired_vrf_assignments }}"
+    result_var: final_vrf_assignments
+    extra_lookup_filters:
+      device: "{{ device_id }}"
   when: unique_vrfs | length > 0
 
 # ------------------------------------------------------------------
@@ -181,36 +211,45 @@
   when: unique_vlans | length > 0
 
 ## ------------------------------------------------------------------
-## Interfaces – SINGLE CALL UPSERT (NEW)
+## Interfaces – SINGLE CALL UPSERT
 ## ------------------------------------------------------------------
-#- name: Build desired interface bodies
-#  set_fact:
-#    desired_interfaces: >-
-#      {{ [{
-#          'name': intf.name,
-#          'device': {'id': device_id},
-#          'type': intf.type,
-#          'enabled': true,
-#          'status': nautobot_status
-#      } for intf in (device.interfaces | default([]))] }}
-#  when: device.interfaces | length > 0
-#
-#- name: Upsert Interfaces (single call)
-#  include_tasks: api_upsert.yml
-#  vars:
-#    endpoint: "{{ endpoints.interfaces }}"
-#    desired_bodies: "{{ desired_interfaces }}"
-#    values: "{{ device.interfaces | default([]) | map(attribute='name') | list }}"
-#    result_var: final_interfaces
-#    extra_lookup_filters:
-#      device: "{{ device_id }}"
-#  when: device.interfaces | length > 0
-#
-#- name: Build interface name → ID map
-#  set_fact:
-#    interface_ids: "{{ dict((device.interfaces | default([]) | map(attribute='name') | zip(final_interfaces | map(attribute='id'))) }}"
-#  when: device.interfaces | length > 0
-#
+- name: Build desired interface bodies
+  set_fact:
+    desired_interfaces: >-
+      {{ device.interfaces | default([]) | map('combine', {
+           'device': {'id': device_id},
+           'enabled': true,
+           'status': nautobot_status
+         }) | list }}
+  when: device.interfaces is defined and device.interfaces | length > 0
+
+- name: Resolve VRF and VLAN IDs for interfaces
+  set_fact:
+    desired_interfaces: >-
+      {{ desired_interfaces | map('combine', {
+           'vrf': {'id': vrf_ids[item.vrf]} if item.vrf is defined and item.vrf in vrf_ids else omit,
+           'vlan': {'id': vlan_ids[item.vlan]} if item.vlan is defined and item.vlan in vlan_ids else omit
+         }) | list }}
+  loop: "{{ desired_interfaces }}"
+  loop_control:
+    loop_var: item
+  when: device.interfaces is defined and device.interfaces | length > 0
+
+- name: Upsert Interfaces
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: "interfaces"
+    desired_bodies: "{{ desired_interfaces }}"
+    result_var: final_interfaces
+    extra_lookup_filters:
+      device: "{{ device_id }}"
+  when: device.interfaces is defined and device.interfaces | length > 0
+
+- name: Build interface_ids map
+  set_fact:
+    interface_ids: "{{ dict(device.interfaces | default([]) | map(attribute='name') | list | zip(final_interfaces | map(attribute='id'))) }}"
+  when: device.interfaces is defined and device.interfaces | length > 0
+
 ## ------------------------------------------------------------------
 ## IP Addresses – SINGLE CALL UPSERT (NEW)
 ## ------------------------------------------------------------------

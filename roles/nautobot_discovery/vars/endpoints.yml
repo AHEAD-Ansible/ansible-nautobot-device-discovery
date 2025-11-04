@@ -131,12 +131,14 @@ endpoints:
     optional_fields: [ description, label, mac_address, mtu, mode, parent_interface, lag, vrf, tags ]
     slug_from: null
     lookup_key: name
+    unique_together: [ device, name ]
     object_type: dcim.interface
     relationships:
       device: dcim.device
       parent_interface: dcim.interface
       lag: dcim.interface
       vrf: ipam.vrf
+    id_filter_fields: [ device, parent_interface, lag, vrf ]
 
   ip_addresses:
     path: /ipam/ip-addresses/
@@ -281,6 +283,7 @@ endpoints:
     optional_fields: [device, virtual_machine, virtual_device_context, name, rd]
     slug_from: null
     lookup_key: id
+    unique_together: [vrf, device]
     object_type: ipam.vrfdeviceassignment
     relationships:
       vrf: ipam.vrf
