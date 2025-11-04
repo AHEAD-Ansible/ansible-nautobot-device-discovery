@@ -78,14 +78,7 @@
 - name: Auto-build lookup filters from unique keys
   set_fact:
     lookup_filters_input: >-
-      [
-        {% for body in desired_bodies %}
-          {
-            "key": {{ unique_keys | to_json }},
-            "value": "{% set vals = [] %}{% for k in unique_keys %}{% set v = body[k] %}{% if k in endpoint.relationships and v is mapping %}{{ vals.append(v.id | string) }}{% else %}{{ vals.append(v | string) }}{% endif %}{% endfor %}{{ vals | join(':') }}"
-          }{% if not loop.last %},{% endif %}
-        {% endfor %}
-      ]
+      {{ desired_bodies | build_lookup_filters(unique_keys, endpoint.relationships | default({})) }}
 
 - name: Validate lookup filters now exist if needed
   assert:
@@ -116,29 +109,31 @@
     lookup_extra_lookup_filters: "{{ extra_lookup_filters | default({}) }}"
   when: lookup_filters_input | length > 0
 
-# (No merge needed—appending happens in api_lookup_chunk.yml)
-
 # ========================================
 # 5. BUILD EXISTING MAP
 # ========================================
 - name: Build existing_map keyed by unique_keys
   set_fact:
     existing_map: "{{ existing_objects | build_existing_map(unique_keys) }}"
+  when: existing_objects | length > 0
 
 # ========================================
 # 6. CLASSIFY CREATES AND UPDATES
 # ========================================
 - name: Classify creates and updates
   set_fact:
-    results: "{{ desired_bodies | classify_upserts(existing_map, unique_keys) }}"
+    results: "{{ desired_bodies | classify_upserts(existing_map | default({}), unique_keys) }}"
 
+# ========================================
+# 7. EXTRACT BODIES
+# ========================================
 - name: Extract create and update bodies
   set_fact:
     create_bodies: "{{ results.creates }}"
     update_bodies: "{{ results.updates }}"
 
 # ========================================
-# 7. BULK CREATE / UPDATE
+# 8. BULK CREATE / UPDATE
 # ========================================
 - name: Bulk create (chunked)
   include_tasks: api_bulk.yml
@@ -167,7 +162,7 @@
   register: update_results
 
 # ========================================
-# 8. FINAL OUTPUT
+# 9. FINAL OUTPUT
 # ========================================
 - name: Build final unified result
   set_fact:
@@ -181,7 +176,7 @@
       }}
 
 # ========================================
-# 9. CLEANUP (prevent cross-contamination between upserts)
+# 10. CLEANUP
 # ========================================
 - name: Cleanup temporary upsert facts
   set_fact:
