@@ -292,65 +292,36 @@
   when: desired_prefix_bodies | default([]) | length > 0
 
 ## ------------------------------------------------------------------
-## IP Addresses – SINGLE CALL UPSERT (NEW)
+## IP Addresses – BULK UPSERT (ZERO JINJA2)
 ## ------------------------------------------------------------------
-#- name: Collect all unique IP addresses
-#  set_fact:
-#    unique_ips: >-
-#      {{ device.interfaces | default([]) |
-#         map('json_query', '[*].ip_addresses[]') |
-#         flatten | unique | list }}
-#
-#- name: Build desired IP bodies
-#  set_fact:
-#    desired_ips: >-
-#      {{ [{
-#          'address': ip,
-#          'status': nautobot_status,
-#          'namespace': {'id': namespace_obj.id}
-#      } for ip in unique_ips] }}
-#  when: unique_ips | length > 0
-#
-#- name: Upsert IP Addresses (single call)
-#  include_tasks: api_upsert.yml
-#  vars:
-#    endpoint: "{{ endpoints.ip_addresses }}"
-#    desired_bodies: "{{ desired_ips }}"
-#    values: "{{ unique_ips }}"                     # Auto-builds ?address=...
-#    result_var: final_ips
-#    extra_lookup_filters:
-#      namespace: "{{ namespace_obj.id }}"
-#  when: unique_ips | length > 0
-#
-#- name: Build IP address → ID map
-#  set_fact:
-#    ip_ids: "{{ dict(unique_ips | zip(final_ips | map(attribute='id'))) }}"
-#  when: unique_ips | length > 0
-#
-## ------------------------------------------------------------------
-## IP-to-Interface Assignments – SINGLE CALL UPSERT (NEW)
-## ------------------------------------------------------------------
-#- name: Build IP-to-Interface assignment bodies
-#  set_fact:
-#    desired_assignments: >-
-#      {{ [{
-#          'ip_address': {'id': ip_ids[ip]},
-#          'interface': {'id': interface_ids[intf.name]},
-#          'is_primary': (ip == dev_primary_ip)
-#      } for intf in (device.interfaces | default([]))
-#         for ip in (intf.ip_addresses | default([]))
-#         if ip_ids[ip] is defined and interface_ids[intf.name] is defined] }}
-#  vars:
-#    dev_primary_ip: "{{ device.primary_ip4 | default('') }}"
-#  when: device.interfaces | length > 0 and unique_ips | length > 0
-#
-#- name: Upsert IP-to-Interface assignments (single call)
-#  include_tasks: api_upsert.yml
-#  vars:
-#    endpoint: "{{ endpoints.ip_address_to_interface }}"
-#    desired_bodies: "{{ desired_assignments }}"
-#    result_var: final_assignments
-#    # Broad filter since composite OR is complex
-#    extra_lookup_filters:
-#      interface__device: "{{ device_id }}"
-#  when: desired_assignments | length > 0
+
+- name: Build IP upsert data via plugin
+  set_fact:
+    ip_upsert_data: >-
+      {{ device
+         | build_ip_upsert_bodies_from_device(
+               namespace_obj.id,
+               nautobot_status,
+               tenant.id | default(none),
+               vrf_ids | default({})
+           ) }}
+
+- name: Upsert IP addresses
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: "ip_addresses"
+    desired_bodies: "{{ ip_upsert_data.bodies }}"
+    result_var: final_ip_addresses
+    extra_lookup_filters:
+      namespace: "{{ namespace_obj.id }}"
+  when: ip_upsert_data.bodies | length > 0
+
+- name: Build ip_id_map from results
+  set_fact:
+    ip_id_map: >-
+      {{ dict(
+           ip_upsert_data.bodies
+           | map(attribute='address')
+           | zip(final_ip_addresses | map(attribute='id'))
+         ) }}
+  when: final_ip_addresses is defined

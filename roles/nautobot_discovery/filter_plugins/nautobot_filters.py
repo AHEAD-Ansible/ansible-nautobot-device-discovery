@@ -327,6 +327,60 @@ def chunk_prefix_bodies(bodies, nautobot_url, max_url_length=1400, base_url_over
 
     return chunks
 
+# ----------------------------------------------------------------------
+# 12. build_ip_upsert_bodies_from_device
+# ----------------------------------------------------------------------
+def build_ip_upsert_bodies_from_device(device, namespace_id, status, tenant_id=None, vrf_ids=None):
+    """
+    Input:
+      - device: full device dict (with .interfaces, .tenant, etc.)
+      - namespace_id: str
+      - status: str
+      - tenant_id: str or None
+      - vrf_ids: dict {vrf_name: vrf_id} or None
+
+    Output:
+      {
+        "bodies": [API-ready dicts],
+        "ip_to_id": {}  # to be filled later
+      }
+    """
+    vrf_ids = vrf_ids or {}
+    tenant = {'tenant': {'id': tenant_id}} if tenant_id else {}
+
+    # 1. Extract all IPs
+    all_ips = []
+    ip_to_vrf = {}
+    for intf in device.get('interfaces', []):
+        ips = intf.get('ip_addresses', [])
+        vrf = intf.get('vrf')
+        for ip in ips:
+            all_ips.append(ip)
+            if vrf:
+                ip_to_vrf[ip] = vrf
+
+    all_ips = sorted(set(all_ips))  # unique
+
+    # 2. Build bodies
+    bodies = []
+    for ip in all_ips:
+        body = {
+            'address': ip,
+            'namespace': {'id': namespace_id},
+            'status': status
+        }
+        body.update(tenant)
+
+        # Add VRF if known
+        if ip in ip_to_vrf and ip_to_vrf[ip] in vrf_ids:
+            body['vrf'] = {'id': vrf_ids[ip_to_vrf[ip]]}
+
+        bodies.append(body)
+
+    return {
+        "bodies": bodies,
+        "ip_to_id": {}  # caller fills after upsert
+    }
 
 # ----------------------------------------------------------------------
 # Filter registration
@@ -349,4 +403,5 @@ class FilterModule(object):
             'smart_chunk_for_payload': smart_chunk_for_payload,
             'resolve_unique_keys': resolve_unique_keys,
             'chunk_prefix_bodies': chunk_prefix_bodies,
+            'build_ip_upsert_bodies_from_device': build_ip_upsert_bodies_from_device,
         }
