@@ -158,7 +158,7 @@
       [{% for v in unique_vlans | unique %}
         {
           "name": "{{ v }}",
-          "vid": {{ loop.index }},                            # simple sequential ID (or replace with lookup)
+          "vid": {{ loop.index }},
           "location": {"id": "{{ location.id }}"},
           "status": "{{ nautobot_status }}"
         }{% if not loop.last %},{% endif %}
@@ -175,18 +175,10 @@
       location: "{{ location.id }}"
   when: unique_vlans | length > 0
 
-- name: Normalize VLAN lookup filters
-  set_fact:
-    extra_lookup_filters: "{{ {'location': location.id, 'vid': item.vid | int} }}"
-  loop: "{{ desired_vlan_bodies }}"
-  when: endpoint_name == 'vlans'
-
 - name: Build vlan_ids map (name → id)
   set_fact:
     vlan_ids: "{{ dict(unique_vlans | zip(final_vlans | map(attribute='id'))) }}"
   when: unique_vlans | length > 0
-
-
 
 ## ------------------------------------------------------------------
 ## Interfaces – SINGLE CALL UPSERT (NEW)

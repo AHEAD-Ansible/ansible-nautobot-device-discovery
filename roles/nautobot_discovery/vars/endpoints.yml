@@ -213,12 +213,7 @@ endpoints:
   vlans:
     path: /ipam/vlans/
     required_fields: [ name, vid, location, status ]
-    optional_fields:
-      - role
-      - tenant
-      - description
-      - tags
-      - custom_fields
+    optional_fields: [ role, tenant, description, tags, custom_fields ]
     slug_from: null
     lookup_key: name
     unique_together: [ location, vid ]
@@ -228,6 +223,7 @@ endpoints:
       status: extras.status
       role: extras.role
       tenant: tenancy.tenant
+    id_filter_fields: [ status ]
 
   ip_address_to_interface:
     path: /ipam/ip-address-to-interface/

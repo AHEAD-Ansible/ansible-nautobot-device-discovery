@@ -40,7 +40,8 @@
         __lookup_query_params + [
           item | build_filter_param(
             lookup_endpoint.relationships | default({}),
-            lookup_endpoint.path
+            lookup_endpoint.path,
+            lookup_endpoint.id_filter_fields | default([])
           )
         ]
       }}

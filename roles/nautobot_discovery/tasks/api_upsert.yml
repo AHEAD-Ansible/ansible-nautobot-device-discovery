@@ -51,14 +51,23 @@
     debug_mode: "{{ debug_mode | default(nautobot_discovery_debug | default(false)) }}"
     unique_keys: >-
       {{
-        [
-          endpoint.unique_keys if endpoint.unique_keys is not none else none,
-          endpoint.unique_together if endpoint.unique_together is not none else none,
-          [lookup_key] if endpoint.unique_keys is none and endpoint.unique_together is none else none
-        ]
-        | reject('none')
-        | reject('equalto', [])
-        | first
+        (
+          endpoint.unique_keys
+          if (
+            endpoint.unique_keys is defined
+            and endpoint.unique_keys is not none
+            and endpoint.unique_keys is not mapping
+            and endpoint.unique_keys | length > 0
+          )
+          else endpoint.unique_together
+          if (
+            endpoint.unique_together is defined
+            and endpoint.unique_together is not none
+            and endpoint.unique_together is not mapping
+            and endpoint.unique_together | length > 0
+          )
+          else [lookup_key]
+        )
         | default([lookup_key])
       }}
     endpoint_path: "{{ endpoint.path }}"

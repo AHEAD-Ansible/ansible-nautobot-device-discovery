@@ -1,4 +1,3 @@
-# roles/nautobot_discovery/filter_plugins/nautobot_filters.py
 import ipaddress
 
 def nautobot_extract_prefixes(device_facts):
@@ -26,58 +25,37 @@ def dict_diff(existing, planned):
     return diff
 
 def nautobot_is_ip(value):
-    """Return True if value is a valid IP (with or without CIDR)."""
     try:
         ipaddress.ip_interface(value)
         return True
     except Exception:
         return False
 
-def build_filter_param(f, relationships, endpoint_path=None):
-    """
-    Convert a filter dict into URL-safe param string.
-    Special case: VRFs use `namespace=<uuid>`, not `namespace_id=`.
-    """
+def build_filter_param(f, relationships, endpoint_path=None, id_filter_fields=None):
     import urllib.parse
 
     key = f['key']
     value = f['value']
+    id_filter_fields = id_filter_fields or []
 
-    # === SPECIAL CASE: VRFs use `namespace` (not `_id`) ===
-    no_id_suffix = False
-    if endpoint_path == "/ipam/vrfs/":
-        if key == "namespace" or (isinstance(key, list) and "namespace" in key):
-            no_id_suffix = True
+    # Extract .id from dicts
+    val = value.get('id', value) if isinstance(value, dict) else value
 
-    # Case 1: Composite key
+    # === COMPOSITE KEY ===
     if isinstance(key, list):
         parts = []
         values = str(value).split(':') if ':' in str(value) else [value]
         for k, v in zip(key, values):
-            param = _param_from_key_value(k, v, relationships, no_id_suffix=no_id_suffix)
-            parts.append(param)
+            v_val = v.get('id', v) if isinstance(v, dict) else v
+            field = f"{k}_id" if k in id_filter_fields else k
+            parts.append(f"{field}={urllib.parse.quote(str(v_val))}")
         return '&'.join(parts)
 
-    # Case 2: Single key
+    # === SINGLE KEY ===
     else:
-        return _param_from_key_value(key, value, relationships, no_id_suffix=no_id_suffix)
+        field = f"{key}_id" if key in id_filter_fields else key
+        return f"{field}={urllib.parse.quote(str(val))}"
 
-
-def _param_from_key_value(k, v, relationships, no_id_suffix=False):
-    import urllib.parse
-
-    # Extract .id if dict (for relationship objects)
-    val = v.get('id', v) if isinstance(v, dict) else v
-
-    # Apply _id suffix only if:
-    # - It's a relationship field
-    # - AND we're not suppressing it (e.g. VRF namespace)
-    if k in relationships and not no_id_suffix:
-        field = f"{k}_id"
-    else:
-        field = k
-
-    return f"{field}={urllib.parse.quote(str(val))}"
 class FilterModule(object):
     def filters(self):
         return {
