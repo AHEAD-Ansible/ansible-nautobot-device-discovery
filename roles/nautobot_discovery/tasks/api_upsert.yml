@@ -38,16 +38,29 @@
     loop_var: field
   when: desired_bodies | length > 0
 
-
 # ========================================
 # 2. SET DEFAULTS FROM ENDPOINT OR GLOBAL VARS
 # ========================================
-- name: Set defaults
+- name: Set lookup_key first
+  set_fact:
+    lookup_key: "{{ override_lookup_key | default(endpoint.lookup_key | default('name')) }}"
+
+- name: Set remaining defaults (including unique_keys)
   set_fact:
     batch_size: "{{ batch_size | default(nautobot_discovery_bulk_chunk_size | default(50)) }}"
     debug_mode: "{{ debug_mode | default(nautobot_discovery_debug | default(false)) }}"
-    unique_keys: "{{ endpoint.unique_keys | default(endpoint.unique_together | default([endpoint.lookup_key | default('name')])) }}"
-    lookup_key: "{{ override_lookup_key | default(endpoint.lookup_key | default('name')) }}"
+    unique_keys: >-
+      {{
+        [
+          endpoint.unique_keys if endpoint.unique_keys is not none else none,
+          endpoint.unique_together if endpoint.unique_together is not none else none,
+          [lookup_key] if endpoint.unique_keys is none and endpoint.unique_together is none else none
+        ]
+        | reject('none')
+        | reject('equalto', [])
+        | first
+        | default([lookup_key])
+      }}
     endpoint_path: "{{ endpoint.path }}"
 
 # ========================================
@@ -60,7 +73,7 @@
         {% for body in desired_bodies %}
           {
             "key": {{ unique_keys | to_json }},
-            "value": {{ unique_keys | map('extract', body) | select('defined') | join(':') | to_json }}
+            "value": "{% set vals = [] %}{% for k in unique_keys %}{% set v = body[k] %}{% if k in endpoint.relationships and v is mapping %}{{ vals.append(v.id | string) }}{% else %}{{ vals.append(v | string) }}{% endif %}{% endfor %}{{ vals | join(':') }}"
           }{% if not loop.last %},{% endif %}
         {% endfor %}
       ]

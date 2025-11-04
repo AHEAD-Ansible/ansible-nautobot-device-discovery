@@ -184,20 +184,31 @@ endpoints:
 
   vrfs:
     path: /ipam/vrfs/
-    required_fields: [ name, rd ]
+    required_fields:
+      - name
+      - rd
     optional_fields:
       - namespace
       - tenant
-      - enforce_unique
+      - enforce_unique  # Legacy, ignored in v2+
       - description
       - tags
       - custom_fields
+      - import_targets
+      - export_targets
     slug_from: name
-    lookup_key: rd
+    lookup_key: rd  # <-- CHANGE TO 'rd' (unique per namespace with extra_filter)
+    unique_keys: null  # Explicit: No composite; use single 'rd' + extra namespace filter
+    unique_together: null  # Confirmed: None in model
     object_type: ipam.vrf
     relationships:
       namespace: ipam.namespace
       tenant: tenancy.tenant
+    notes: >
+      RD is unique per namespace (DB constraint: UniqueConstraint(namespace, rd)).
+      Name is NOT unique (future feature).
+      For upsert: Filter by namespace_id + rd for 1:1 match.
+      Fallback to name if rd missing.
 
   vlans:
     path: /ipam/vlans/

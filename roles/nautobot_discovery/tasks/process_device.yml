@@ -140,7 +140,7 @@
   when: unique_vrfs | length > 0
 
 # ------------------------------------------------------------------
-# VLANs – SINGLE CALL UPSERT (WORKING)
+# VLANs – SINGLE CALL UPSERT (FIXED)
 # ------------------------------------------------------------------
 - name: Collect unique VLANs
   set_fact:
@@ -148,26 +148,21 @@
       {{
         (device.vlans | default([])) +
         (device.interfaces | default([]) | map(attribute='vlan') | select('defined') | list)
-        | unique
-        | list
+        | unique | list
       }}
   when: device.vlans is defined or (device.interfaces is defined and device.interfaces | length > 0)
 
 - name: Build desired VLAN bodies
   set_fact:
-    desired_vlan_bodies: "{{ _bodies }}"
-  vars:
-    _bodies: >-
-      {% set result = [] %}
-      {% for v in unique_vlans %}
-      {% set _ = result.append({
-          'name': v,
-          'vid': v | int,
-          'location': { 'id': location.id },
-          'status': nautobot_status
-        }) %}
-      {% endfor %}
-      {{ result }}
+    desired_vlan_bodies: >-
+      [{% for v in unique_vlans | unique %}
+        {
+          "name": "{{ v }}",
+          "vid": {{ loop.index }},                            # simple sequential ID (or replace with lookup)
+          "location": {"id": "{{ location.id }}"},
+          "status": "{{ nautobot_status }}"
+        }{% if not loop.last %},{% endif %}
+      {% endfor %}]
   when: unique_vlans | length > 0
 
 - name: Upsert VLANs (single call)
@@ -180,10 +175,18 @@
       location: "{{ location.id }}"
   when: unique_vlans | length > 0
 
+- name: Normalize VLAN lookup filters
+  set_fact:
+    extra_lookup_filters: "{{ {'location': location.id, 'vid': item.vid | int} }}"
+  loop: "{{ desired_vlan_bodies }}"
+  when: endpoint_name == 'vlans'
+
 - name: Build vlan_ids map (name → id)
   set_fact:
     vlan_ids: "{{ dict(unique_vlans | zip(final_vlans | map(attribute='id'))) }}"
   when: unique_vlans | length > 0
+
+
 
 ## ------------------------------------------------------------------
 ## Interfaces – SINGLE CALL UPSERT (NEW)
