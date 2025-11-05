@@ -20,13 +20,13 @@
 - name: Reset tag_ids for this device
   set_fact:
     tag_ids: []
-  when: device.tags | length > 0
+  when: device.tags is defined and device.tags | length > 0
 
 - include_tasks: process_tag.yml
   loop: "{{ device.tags | default([]) | unique }}"
   loop_control:
     loop_var: tag_name
-  when: device.tags | length > 0
+  when: device.tags is defined and device.tags | length > 0
 
 - name: Lookup existing device
   include_tasks: api_lookup.yml
@@ -43,10 +43,7 @@
 
 - name: Set tags list
   set_fact:
-    tags_list: >-
-      {{ tag_ids | default([]) |
-         map('regex_replace', '^(.*)$', '{"id": "\1"}') |
-         map('from_json') | list }}
+    tags_list: "{{ tag_ids | default([]) | build_id_list }}"
 
 - name: Create or update device
   include_tasks: api_create_or_update.yml
@@ -62,10 +59,10 @@
       location: { "id": "{{ location.id | default(omit) }}" }
       status: "{{ device.status | default(nautobot_status) }}"
       custom_fields: "{{ device.custom_fields | default({}) }}"
-      tags: "{{ tags_list }}"
-      asset_tag: "{{ device.asset_tag | default(omit) }}"
-      rack: { "id": "{{ rack.id | default(omit) }}" }
-      position: "{{ device.position | default(omit) }}"
+#      tags: "{{ tags_list }}"
+#      asset_tag: "{{ device.asset_tag | default(omit) }}"
+#      rack: { "id": "{{ rack.id | default(omit) }}" }
+#      position: "{{ device.position | default(omit) }}"
       face: "{{ device.face | default(omit) }}"
       tenant: { "id": "{{ tenant.id | default(omit) }}" }
       software_version: { "id": "{{ software_version.id | default(omit) }}" }
@@ -103,47 +100,78 @@
       when: namespace_list | length == 0
 
 # ------------------------------------------------------------------
-# VRFs – SINGLE CALL UPSERT
+# VLANs
 # ------------------------------------------------------------------
-- name: Collect unique VRFs
+- name: Collect unique VLANs
   set_fact:
-    unique_vrfs: >-
-      {{ (device.interfaces | default([]) |
-          map(attribute='vrf') | select('defined') | unique +
-          device.vrfs | default([])) |
-         unique | select('defined') | list }}
+    unique_vlans: >-
+      {{
+        ((device.vlans | default([]) | list) +
+         (device.interfaces | default([]) | map(attribute='vlan') | select('defined') | list))
+        | unique
+        | list
+      }}
+  when: device.vlans is defined or (device.interfaces is defined and device.interfaces | length > 0)
 
-- name: Build desired VRF bodies
+- name: Build desired VLAN bodies (PURE PLUGIN)
   set_fact:
-    desired_vrf_bodies: >-
-      {{ unique_vrfs | map('community.general.dict_kv', 'name') |
-         zip(unique_vrfs | map('community.general.dict_kv', 'rd')) |
-         map('combine') |
-         map('combine', {'namespace': {'id': namespace_obj.id}}) |
-         list }}
+    desired_vlan_bodies: >-
+      {{ unique_vlans | build_vlan_bodies(location.id, nautobot_status) }}
+  when: unique_vlans | length > 0
 
-- name: Upsert VRFs (single call)
+- name: Upsert VLANs
   include_tasks: api_upsert.yml
   vars:
-    endpoint_name: "vrfs"
+    endpoint_name: vlans
+    desired_bodies: "{{ desired_vlan_bodies }}"
+    result_var: final_vlans
+    extra_lookup_filters:
+      location: "{{ location.id }}"
+  when: unique_vlans | length > 0
+
+# ------------------------------------------------------------------
+# VRFs – PURE PLUGIN, NO J2, NO COMMUNITY
+# ------------------------------------------------------------------
+- name: Collect unique VRF names
+  set_fact:
+    unique_vrf_names: >-
+      {{
+        ((device.interfaces | default([]) | map(attribute='vrf') | select('defined') | list) +
+         (device.vrfs | default([]) | map(attribute='name') | select('defined') | list))
+        | unique
+        | list
+      }}
+  when: device.interfaces is defined or device.vrfs is defined
+
+- name: Build desired VRF bodies (PURE PLUGIN)
+  set_fact:
+    desired_vrf_bodies: >-
+      {{ unique_vrf_names | build_vrf_bodies(namespace_obj.id) }}
+  when: unique_vrf_names | length > 0
+
+- name: Upsert VRFs
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: vrfs
     desired_bodies: "{{ desired_vrf_bodies }}"
     result_var: final_vrfs
     extra_lookup_filters:
       namespace: "{{ namespace_obj.id }}"
-  when: unique_vrfs | length > 0
+  when: unique_vrf_names | length > 0
 
-- name: Build vrf_ids map
+- name: Build vrf_ids map (rd → id)
   set_fact:
-    vrf_ids: "{{ dict(unique_vrfs | zip(final_vrfs | map(attribute='id'))) }}"
-  when: unique_vrfs | length > 0
+    vrf_ids: >-
+      {{ dict(final_vrfs | map(attribute='rd') | zip(final_vrfs | map(attribute='id'))) }}
+  when: unique_vrf_names | length > 0
 
 # ------------------------------------------------------------------
-# VRF-to-Device Assignments – REQUIRED BEFORE INTERFACES
+# VRF-to-Device Assignments
 # ------------------------------------------------------------------
 - name: Build VRF-to-Device assignment bodies
   set_fact:
     desired_vrf_assignments: []
-  when: unique_vrfs | length > 0
+  when: unique_vrf_names | length > 0
 
 - name: Add VRF-to-Device assignments
   set_fact:
@@ -156,10 +184,10 @@
              'rd': item + '-updated'
            }
          ] }}
-  loop: "{{ unique_vrfs }}"
+  loop: "{{ unique_vrf_names }}"
   loop_control:
     loop_var: item
-  when: unique_vrfs | length > 0
+  when: unique_vrf_names | length > 0
 
 - name: Upsert VRF-to-Device assignments
   include_tasks: api_upsert.yml
@@ -169,48 +197,7 @@
     result_var: final_vrf_assignments
     extra_lookup_filters:
       device: "{{ device_id }}"
-  when: unique_vrfs | length > 0
-
-# ------------------------------------------------------------------
-# VLANs – SINGLE CALL UPSERT (FIXED)
-# ------------------------------------------------------------------
-- name: Collect unique VLANs
-  set_fact:
-    unique_vlans: >-
-      {{
-        (device.vlans | default([])) +
-        (device.interfaces | default([]) | map(attribute='vlan') | select('defined') | list)
-        | unique | list
-      }}
-  when: device.vlans is defined or (device.interfaces is defined and device.interfaces | length > 0)
-
-- name: Build desired VLAN bodies
-  set_fact:
-    desired_vlan_bodies: >-
-      [{% for v in unique_vlans | unique %}
-        {
-          "name": "{{ v }}",
-          "vid": {{ loop.index }},
-          "location": {"id": "{{ location.id }}"},
-          "status": "{{ nautobot_status }}"
-        }{% if not loop.last %},{% endif %}
-      {% endfor %}]
-  when: unique_vlans | length > 0
-
-- name: Upsert VLANs (single call)
-  include_tasks: api_upsert.yml
-  vars:
-    endpoint_name: "vlans"
-    desired_bodies: "{{ desired_vlan_bodies }}"
-    result_var: final_vlans
-    extra_lookup_filters:
-      location: "{{ location.id }}"
-  when: unique_vlans | length > 0
-
-- name: Build vlan_ids map (name → id)
-  set_fact:
-    vlan_ids: "{{ dict(unique_vlans | zip(final_vlans | map(attribute='id'))) }}"
-  when: unique_vlans | length > 0
+  when: unique_vrf_names | length > 0
 
 ## ------------------------------------------------------------------
 ## Interfaces – SINGLE CALL UPSERT
@@ -292,7 +279,7 @@
   when: desired_prefix_bodies | default([]) | length > 0
 
 ## ------------------------------------------------------------------
-## IP Addresses – BULK UPSERT (ZERO JINJA2)
+## IP Addresses
 ## ------------------------------------------------------------------
 
 - name: Build IP upsert data via plugin
@@ -328,7 +315,7 @@
 
 
 # ------------------------------------------------------------------
-# IP Address to Interface Assignments – BULK UPSERT
+# IP Address to Interface Assignments
 # ------------------------------------------------------------------
 
 - name: Initialize ip_to_interface_bodies
@@ -380,14 +367,14 @@
       device_type: { "id": "{{ device_type.id }}" }
       role: { "id": "{{ role.id }}" }
       platform: { "id": "{{ platform.id }}" }
-      "primary_ip4": { "id": "{{ primary_ip4_id }}" }
+      primary_ip4: { "id": "{{ primary_ip4_id }}" }
       location: { "id": "{{ location.id | default(omit) }}" }
       status: "{{ device.status | default(nautobot_status) }}"
-      custom_fields: "{{ device.custom_fields | default({}) }}"
-      tags: "{{ tags_list }}"
-      asset_tag: "{{ device.asset_tag | default(omit) }}"
-      rack: { "id": "{{ rack.id | default(omit) }}" }
-      position: "{{ device.position | default(omit) }}"
+#      custom_fields: "{{ device.custom_fields | default({}) }}"
+#      tags: "{{ tags_list }}"
+#      asset_tag: "{{ device.asset_tag | default(omit) }}"
+#      rack: { "id": "{{ rack.id | default(omit) }}" }
+#      position: "{{ device.position | default(omit) }}"
       face: "{{ device.face | default(omit) }}"
       tenant: { "id": "{{ tenant.id | default(omit) }}" }
       software_version: { "id": "{{ software_version.id | default(omit) }}" }

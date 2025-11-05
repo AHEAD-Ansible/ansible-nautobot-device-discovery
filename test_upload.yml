@@ -5,7 +5,7 @@
   tasks:
     - name: Load device_facts from JSON file
       set_fact:
-        device_facts: "{{ lookup('file', './device_facts.json') | from_json }}"
+        device_facts: "{{ lookup('file', './test_device_facts.json') | from_json }}"
     - name: Verify imported device_facts
       debug:
         var: device_facts

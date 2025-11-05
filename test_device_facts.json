@@ -1,0 +1,1790 @@
+[
+    {
+        "device_type": "BIG-IP Virtual Edition",
+        "interfaces": [
+            {
+                "ip_addresses": [
+                    "10.0.2.20/24",
+                    "172.16.1.1/24"
+                ],
+                "name": "1.0",
+                "type": "10gbase-t",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.26.122/20"
+                ],
+                "name": "mgmt",
+                "type": "100base-tx"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.1/32"
+                ],
+                "name": "vs_app1_vs",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.2/32"
+                ],
+                "name": "vs_app2_vs",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.3/32"
+                ],
+                "name": "vs_fake_vs_1",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.12/32"
+                ],
+                "name": "vs_fake_vs_10",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.102/32"
+                ],
+                "name": "vs_fake_vs_100",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.13/32"
+                ],
+                "name": "vs_fake_vs_11",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.14/32"
+                ],
+                "name": "vs_fake_vs_12",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.15/32"
+                ],
+                "name": "vs_fake_vs_13",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.16/32"
+                ],
+                "name": "vs_fake_vs_14",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.17/32"
+                ],
+                "name": "vs_fake_vs_15",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.18/32"
+                ],
+                "name": "vs_fake_vs_16",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.19/32"
+                ],
+                "name": "vs_fake_vs_17",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.20/32"
+                ],
+                "name": "vs_fake_vs_18",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.21/32"
+                ],
+                "name": "vs_fake_vs_19",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.4/32"
+                ],
+                "name": "vs_fake_vs_2",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.22/32"
+                ],
+                "name": "vs_fake_vs_20",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.23/32"
+                ],
+                "name": "vs_fake_vs_21",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.24/32"
+                ],
+                "name": "vs_fake_vs_22",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.25/32"
+                ],
+                "name": "vs_fake_vs_23",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.26/32"
+                ],
+                "name": "vs_fake_vs_24",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.27/32"
+                ],
+                "name": "vs_fake_vs_25",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.28/32"
+                ],
+                "name": "vs_fake_vs_26",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.29/32"
+                ],
+                "name": "vs_fake_vs_27",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.30/32"
+                ],
+                "name": "vs_fake_vs_28",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.31/32"
+                ],
+                "name": "vs_fake_vs_29",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.5/32"
+                ],
+                "name": "vs_fake_vs_3",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.32/32"
+                ],
+                "name": "vs_fake_vs_30",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.33/32"
+                ],
+                "name": "vs_fake_vs_31",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.34/32"
+                ],
+                "name": "vs_fake_vs_32",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.35/32"
+                ],
+                "name": "vs_fake_vs_33",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.36/32"
+                ],
+                "name": "vs_fake_vs_34",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.37/32"
+                ],
+                "name": "vs_fake_vs_35",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.38/32"
+                ],
+                "name": "vs_fake_vs_36",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.39/32"
+                ],
+                "name": "vs_fake_vs_37",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.40/32"
+                ],
+                "name": "vs_fake_vs_38",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.41/32"
+                ],
+                "name": "vs_fake_vs_39",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.6/32"
+                ],
+                "name": "vs_fake_vs_4",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.42/32"
+                ],
+                "name": "vs_fake_vs_40",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.43/32"
+                ],
+                "name": "vs_fake_vs_41",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.44/32"
+                ],
+                "name": "vs_fake_vs_42",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.45/32"
+                ],
+                "name": "vs_fake_vs_43",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.46/32"
+                ],
+                "name": "vs_fake_vs_44",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.47/32"
+                ],
+                "name": "vs_fake_vs_45",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.48/32"
+                ],
+                "name": "vs_fake_vs_46",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.49/32"
+                ],
+                "name": "vs_fake_vs_47",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.50/32"
+                ],
+                "name": "vs_fake_vs_48",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.51/32"
+                ],
+                "name": "vs_fake_vs_49",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.7/32"
+                ],
+                "name": "vs_fake_vs_5",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.52/32"
+                ],
+                "name": "vs_fake_vs_50",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.53/32"
+                ],
+                "name": "vs_fake_vs_51",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.54/32"
+                ],
+                "name": "vs_fake_vs_52",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.55/32"
+                ],
+                "name": "vs_fake_vs_53",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.56/32"
+                ],
+                "name": "vs_fake_vs_54",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.57/32"
+                ],
+                "name": "vs_fake_vs_55",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.58/32"
+                ],
+                "name": "vs_fake_vs_56",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.59/32"
+                ],
+                "name": "vs_fake_vs_57",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.60/32"
+                ],
+                "name": "vs_fake_vs_58",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.61/32"
+                ],
+                "name": "vs_fake_vs_59",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.8/32"
+                ],
+                "name": "vs_fake_vs_6",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.62/32"
+                ],
+                "name": "vs_fake_vs_60",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.63/32"
+                ],
+                "name": "vs_fake_vs_61",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.64/32"
+                ],
+                "name": "vs_fake_vs_62",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.65/32"
+                ],
+                "name": "vs_fake_vs_63",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.66/32"
+                ],
+                "name": "vs_fake_vs_64",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.67/32"
+                ],
+                "name": "vs_fake_vs_65",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.68/32"
+                ],
+                "name": "vs_fake_vs_66",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.69/32"
+                ],
+                "name": "vs_fake_vs_67",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.70/32"
+                ],
+                "name": "vs_fake_vs_68",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.71/32"
+                ],
+                "name": "vs_fake_vs_69",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.9/32"
+                ],
+                "name": "vs_fake_vs_7",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.72/32"
+                ],
+                "name": "vs_fake_vs_70",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.73/32"
+                ],
+                "name": "vs_fake_vs_71",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.74/32"
+                ],
+                "name": "vs_fake_vs_72",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.75/32"
+                ],
+                "name": "vs_fake_vs_73",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.76/32"
+                ],
+                "name": "vs_fake_vs_74",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.77/32"
+                ],
+                "name": "vs_fake_vs_75",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.78/32"
+                ],
+                "name": "vs_fake_vs_76",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.79/32"
+                ],
+                "name": "vs_fake_vs_77",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.80/32"
+                ],
+                "name": "vs_fake_vs_78",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.81/32"
+                ],
+                "name": "vs_fake_vs_79",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.10/32"
+                ],
+                "name": "vs_fake_vs_8",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.82/32"
+                ],
+                "name": "vs_fake_vs_80",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.83/32"
+                ],
+                "name": "vs_fake_vs_81",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.84/32"
+                ],
+                "name": "vs_fake_vs_82",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.85/32"
+                ],
+                "name": "vs_fake_vs_83",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.86/32"
+                ],
+                "name": "vs_fake_vs_84",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.87/32"
+                ],
+                "name": "vs_fake_vs_85",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.88/32"
+                ],
+                "name": "vs_fake_vs_86",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.89/32"
+                ],
+                "name": "vs_fake_vs_87",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.90/32"
+                ],
+                "name": "vs_fake_vs_88",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.91/32"
+                ],
+                "name": "vs_fake_vs_89",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.11/32"
+                ],
+                "name": "vs_fake_vs_9",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.92/32"
+                ],
+                "name": "vs_fake_vs_90",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.93/32"
+                ],
+                "name": "vs_fake_vs_91",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.94/32"
+                ],
+                "name": "vs_fake_vs_92",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.95/32"
+                ],
+                "name": "vs_fake_vs_93",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.96/32"
+                ],
+                "name": "vs_fake_vs_94",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.97/32"
+                ],
+                "name": "vs_fake_vs_95",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.98/32"
+                ],
+                "name": "vs_fake_vs_96",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.99/32"
+                ],
+                "name": "vs_fake_vs_97",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.100/32"
+                ],
+                "name": "vs_fake_vs_98",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            {
+                "ip_addresses": [
+                    "10.0.100.101/32"
+                ],
+                "name": "vs_fake_vs_99",
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            }
+        ],
+        "intf_dict": {
+            "1.0": {
+                "ip_addresses": [
+                    "10.0.2.20/24",
+                    "172.16.1.1/24"
+                ],
+                "type": "10gbase-t",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "mgmt": {
+                "ip_addresses": [
+                    "10.0.26.122/20"
+                ],
+                "type": "100base-tx"
+            },
+            "vs_app1_vs": {
+                "ip_addresses": [
+                    "10.0.100.1/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_app2_vs": {
+                "ip_addresses": [
+                    "10.0.100.2/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_1": {
+                "ip_addresses": [
+                    "10.0.100.3/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_10": {
+                "ip_addresses": [
+                    "10.0.100.12/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_100": {
+                "ip_addresses": [
+                    "10.0.100.102/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_11": {
+                "ip_addresses": [
+                    "10.0.100.13/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_12": {
+                "ip_addresses": [
+                    "10.0.100.14/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_13": {
+                "ip_addresses": [
+                    "10.0.100.15/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_14": {
+                "ip_addresses": [
+                    "10.0.100.16/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_15": {
+                "ip_addresses": [
+                    "10.0.100.17/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_16": {
+                "ip_addresses": [
+                    "10.0.100.18/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_17": {
+                "ip_addresses": [
+                    "10.0.100.19/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_18": {
+                "ip_addresses": [
+                    "10.0.100.20/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_19": {
+                "ip_addresses": [
+                    "10.0.100.21/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_2": {
+                "ip_addresses": [
+                    "10.0.100.4/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_20": {
+                "ip_addresses": [
+                    "10.0.100.22/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_21": {
+                "ip_addresses": [
+                    "10.0.100.23/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_22": {
+                "ip_addresses": [
+                    "10.0.100.24/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_23": {
+                "ip_addresses": [
+                    "10.0.100.25/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_24": {
+                "ip_addresses": [
+                    "10.0.100.26/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_25": {
+                "ip_addresses": [
+                    "10.0.100.27/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_26": {
+                "ip_addresses": [
+                    "10.0.100.28/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_27": {
+                "ip_addresses": [
+                    "10.0.100.29/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_28": {
+                "ip_addresses": [
+                    "10.0.100.30/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_29": {
+                "ip_addresses": [
+                    "10.0.100.31/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_3": {
+                "ip_addresses": [
+                    "10.0.100.5/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_30": {
+                "ip_addresses": [
+                    "10.0.100.32/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_31": {
+                "ip_addresses": [
+                    "10.0.100.33/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_32": {
+                "ip_addresses": [
+                    "10.0.100.34/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_33": {
+                "ip_addresses": [
+                    "10.0.100.35/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_34": {
+                "ip_addresses": [
+                    "10.0.100.36/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_35": {
+                "ip_addresses": [
+                    "10.0.100.37/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_36": {
+                "ip_addresses": [
+                    "10.0.100.38/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_37": {
+                "ip_addresses": [
+                    "10.0.100.39/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_38": {
+                "ip_addresses": [
+                    "10.0.100.40/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_39": {
+                "ip_addresses": [
+                    "10.0.100.41/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_4": {
+                "ip_addresses": [
+                    "10.0.100.6/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_40": {
+                "ip_addresses": [
+                    "10.0.100.42/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_41": {
+                "ip_addresses": [
+                    "10.0.100.43/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_42": {
+                "ip_addresses": [
+                    "10.0.100.44/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_43": {
+                "ip_addresses": [
+                    "10.0.100.45/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_44": {
+                "ip_addresses": [
+                    "10.0.100.46/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_45": {
+                "ip_addresses": [
+                    "10.0.100.47/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_46": {
+                "ip_addresses": [
+                    "10.0.100.48/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_47": {
+                "ip_addresses": [
+                    "10.0.100.49/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_48": {
+                "ip_addresses": [
+                    "10.0.100.50/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_49": {
+                "ip_addresses": [
+                    "10.0.100.51/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_5": {
+                "ip_addresses": [
+                    "10.0.100.7/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_50": {
+                "ip_addresses": [
+                    "10.0.100.52/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_51": {
+                "ip_addresses": [
+                    "10.0.100.53/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_52": {
+                "ip_addresses": [
+                    "10.0.100.54/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_53": {
+                "ip_addresses": [
+                    "10.0.100.55/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_54": {
+                "ip_addresses": [
+                    "10.0.100.56/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_55": {
+                "ip_addresses": [
+                    "10.0.100.57/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_56": {
+                "ip_addresses": [
+                    "10.0.100.58/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_57": {
+                "ip_addresses": [
+                    "10.0.100.59/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_58": {
+                "ip_addresses": [
+                    "10.0.100.60/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_59": {
+                "ip_addresses": [
+                    "10.0.100.61/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_6": {
+                "ip_addresses": [
+                    "10.0.100.8/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_60": {
+                "ip_addresses": [
+                    "10.0.100.62/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_61": {
+                "ip_addresses": [
+                    "10.0.100.63/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_62": {
+                "ip_addresses": [
+                    "10.0.100.64/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_63": {
+                "ip_addresses": [
+                    "10.0.100.65/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_64": {
+                "ip_addresses": [
+                    "10.0.100.66/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_65": {
+                "ip_addresses": [
+                    "10.0.100.67/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_66": {
+                "ip_addresses": [
+                    "10.0.100.68/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_67": {
+                "ip_addresses": [
+                    "10.0.100.69/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_68": {
+                "ip_addresses": [
+                    "10.0.100.70/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_69": {
+                "ip_addresses": [
+                    "10.0.100.71/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_7": {
+                "ip_addresses": [
+                    "10.0.100.9/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_70": {
+                "ip_addresses": [
+                    "10.0.100.72/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_71": {
+                "ip_addresses": [
+                    "10.0.100.73/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_72": {
+                "ip_addresses": [
+                    "10.0.100.74/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_73": {
+                "ip_addresses": [
+                    "10.0.100.75/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_74": {
+                "ip_addresses": [
+                    "10.0.100.76/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_75": {
+                "ip_addresses": [
+                    "10.0.100.77/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_76": {
+                "ip_addresses": [
+                    "10.0.100.78/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_77": {
+                "ip_addresses": [
+                    "10.0.100.79/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_78": {
+                "ip_addresses": [
+                    "10.0.100.80/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_79": {
+                "ip_addresses": [
+                    "10.0.100.81/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_8": {
+                "ip_addresses": [
+                    "10.0.100.10/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_80": {
+                "ip_addresses": [
+                    "10.0.100.82/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_81": {
+                "ip_addresses": [
+                    "10.0.100.83/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_82": {
+                "ip_addresses": [
+                    "10.0.100.84/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_83": {
+                "ip_addresses": [
+                    "10.0.100.85/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_84": {
+                "ip_addresses": [
+                    "10.0.100.86/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_85": {
+                "ip_addresses": [
+                    "10.0.100.87/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_86": {
+                "ip_addresses": [
+                    "10.0.100.88/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_87": {
+                "ip_addresses": [
+                    "10.0.100.89/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_88": {
+                "ip_addresses": [
+                    "10.0.100.90/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_89": {
+                "ip_addresses": [
+                    "10.0.100.91/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_9": {
+                "ip_addresses": [
+                    "10.0.100.11/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_90": {
+                "ip_addresses": [
+                    "10.0.100.92/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_91": {
+                "ip_addresses": [
+                    "10.0.100.93/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_92": {
+                "ip_addresses": [
+                    "10.0.100.94/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_93": {
+                "ip_addresses": [
+                    "10.0.100.95/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_94": {
+                "ip_addresses": [
+                    "10.0.100.96/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_95": {
+                "ip_addresses": [
+                    "10.0.100.97/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_96": {
+                "ip_addresses": [
+                    "10.0.100.98/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_97": {
+                "ip_addresses": [
+                    "10.0.100.99/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_98": {
+                "ip_addresses": [
+                    "10.0.100.100/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            },
+            "vs_fake_vs_99": {
+                "ip_addresses": [
+                    "10.0.100.101/32"
+                ],
+                "type": "virtual",
+                "vlan": "internal",
+                "vrf": "0"
+            }
+        },
+        "location": "Not Defined",
+        "manufacturer": "F5",
+        "name": "virtual_f5",
+        "platform": "tmos",
+        "primary_ip4": "10.0.26.122/20",
+        "role": "Load Balancer",
+        "serial_number": "48e52cec-65b9-f0a1-89110aa493ef",
+        "software_version": "17.5.1.2",
+        "vlans": [
+            "internal"
+        ],
+        "vrfs": [
+            "0",
+            "1"
+        ]
+    }
+]

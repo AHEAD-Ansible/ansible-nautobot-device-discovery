@@ -1,6 +1,6 @@
 ---
 - name: Gather facts from F5 BIG-IP
-  hosts: f5_bigip_group
+  hosts: all
   gather_facts: no
   collections:
     - f5networks.f5_modules

@@ -383,6 +383,67 @@ def build_ip_upsert_bodies_from_device(device, namespace_id, status, tenant_id=N
     }
 
 # ----------------------------------------------------------------------
+# 13. build_vlan_bodies – PURE PLUGIN, NO J2, NO COMMUNITY
+# ----------------------------------------------------------------------
+def build_vlan_bodies(vlan_names, location_id, status):
+    bodies = []
+    for idx, name in enumerate(set(vlan_names), start=1):  # Built-in unique
+        bodies.append({
+            'name': name,
+            'vid': idx,
+            'location': {'id': location_id},
+            'status': status
+        })
+    return bodies
+
+# ----------------------------------------------------------------------
+# 14. build_vrf_bodies – PURE PLUGIN
+# ----------------------------------------------------------------------
+def build_vrf_bodies(vrf_names, namespace_id):
+    unique_names = set(vrf_names)  # Built-in unique
+    return [
+        {'name': name, 'rd': name, 'namespace': {'id': namespace_id}}
+        for name in unique_names
+    ]
+
+# ----------------------------------------------------------------------
+# 15. build_id_list – PURE PLUGIN (replaces regex for tags)
+# ----------------------------------------------------------------------
+def build_id_list(ids):
+    return [{'id': id_val} for id_val in ids]
+
+# ----------------------------------------------------------------------
+# 16. smart_dict_diff – Handle relationships by id comparison
+# ----------------------------------------------------------------------
+def smart_dict_diff(existing, planned):
+    diff = {}
+    for k, v in planned.items():
+        if k not in existing:
+            diff[k] = v
+            continue
+        ex_v = existing[k]
+        if isinstance(v, dict) and isinstance(ex_v, dict) and 'id' in v and 'id' in ex_v:
+            if v['id'] != ex_v['id']:
+                diff[k] = v
+        elif ex_v != v:
+            diff[k] = v
+    return diff
+# ----------------------------------------------------------------------
+# 14. build_vrf_bodies – PURE PLUGIN
+# ----------------------------------------------------------------------
+def build_vrf_bodies(vrf_names, namespace_id):
+    """
+    Input:
+      - vrf_names: list of strings ['corp', 'guest']
+      - namespace_id: str
+    Output:
+      - list of dicts: {'name': 'corp', 'rd': 'corp', 'namespace': {'id': ...}}
+    """
+    return [
+        {'name': name, 'rd': name, 'namespace': {'id': namespace_id}}
+        for name in vrf_names
+    ]
+# ----------------------------------------------------------------------
 # Filter registration
 # ----------------------------------------------------------------------
 class FilterModule(object):
@@ -404,4 +465,8 @@ class FilterModule(object):
             'resolve_unique_keys': resolve_unique_keys,
             'chunk_prefix_bodies': chunk_prefix_bodies,
             'build_ip_upsert_bodies_from_device': build_ip_upsert_bodies_from_device,
+            'build_vlan_bodies': build_vlan_bodies,
+            'build_vrf_bodies': build_vrf_bodies,
+            'build_id_list': build_id_list,
+            'smart_dict_diff': smart_dict_diff,
         }
