@@ -358,3 +358,41 @@
     desired_bodies: "{{ ip_to_interface_bodies }}"
     result_var: final_ip_assignments
   when: ip_to_interface_bodies | length > 0
+
+# ------------------------------------------------------------------
+# FINAL STEP: Assign primary_ip4 to device (AFTER IP-to-interface assignment)
+# ------------------------------------------------------------------
+- name: Resolve primary_ip4 ID from ip_id_map (must exist and be assigned)
+  set_fact:
+    primary_ip4_id: "{{ ip_id_map[device.primary_ip4] | default(none) }}"
+  when:
+    - device.primary_ip4 is defined
+    - device.primary_ip4 in ip_id_map
+
+- name: Create or update device
+  include_tasks: api_create_or_update.yml
+  vars:
+    endpoint: "{{ endpoints.devices }}"
+    obj_id: "{{ device_obj.id | default(omit) }}"
+    body:
+      name: "{{ device.name }}"
+      serial: "{{ device.serial_number }}"
+      device_type: { "id": "{{ device_type.id }}" }
+      role: { "id": "{{ role.id }}" }
+      platform: { "id": "{{ platform.id }}" }
+      "primary_ip4": { "id": "{{ primary_ip4_id }}" }
+      location: { "id": "{{ location.id | default(omit) }}" }
+      status: "{{ device.status | default(nautobot_status) }}"
+      custom_fields: "{{ device.custom_fields | default({}) }}"
+      tags: "{{ tags_list }}"
+      asset_tag: "{{ device.asset_tag | default(omit) }}"
+      rack: { "id": "{{ rack.id | default(omit) }}" }
+      position: "{{ device.position | default(omit) }}"
+      face: "{{ device.face | default(omit) }}"
+      tenant: { "id": "{{ tenant.id | default(omit) }}" }
+      software_version: { "id": "{{ software_version.id | default(omit) }}" }
+      comments: "{{ device.comments | default('') }}"
+    var_name: device_obj
+    when:
+      - device.primary_ip4 is defined
+      - device.primary_ip4 in ip_id_map
