@@ -145,7 +145,7 @@ endpoints:
     optional_fields: [ vrf, tenant, role, dns_name, description, tags ]
     slug_from: null
     lookup_key: address
-    unique_together: [ namespace, address ]
+    unique_together: [ address ]
     object_type: ipam.ipaddress
     relationships:
       namespace: ipam.namespace

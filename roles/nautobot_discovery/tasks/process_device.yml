@@ -325,3 +325,36 @@
            | zip(final_ip_addresses | map(attribute='id'))
          ) }}
   when: final_ip_addresses is defined
+
+
+# ------------------------------------------------------------------
+# IP Address to Interface Assignments – BULK UPSERT
+# ------------------------------------------------------------------
+
+- name: Initialize ip_to_interface_bodies
+  set_fact:
+    ip_to_interface_bodies: []
+
+- name: Build IP-to-Interface assignment bodies
+  include_tasks: assign_ip_to_interface.yml
+  loop: "{{ device.interfaces | default([]) }}"
+  loop_control:
+    loop_var: intf
+  when:
+    - intf.ip_addresses is defined
+    - intf.ip_addresses | length > 0
+    - ip_id_map is defined
+    - interface_ids is defined
+    - intf.name in interface_ids
+
+- name: Deduplicate assignments
+  set_fact:
+    ip_to_interface_bodies: "{{ ip_to_interface_bodies | unique }}"
+
+- name: Upsert IP-to-Interface relationships
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: "ip_address_to_interface"
+    desired_bodies: "{{ ip_to_interface_bodies }}"
+    result_var: final_ip_assignments
+  when: ip_to_interface_bodies | length > 0

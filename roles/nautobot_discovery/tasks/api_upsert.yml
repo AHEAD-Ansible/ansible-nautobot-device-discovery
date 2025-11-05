@@ -73,10 +73,10 @@
   set_fact:
     existing_objects: []
 
-- name: Dynamically chunk lookup filters (URL-safe, 1500 chars)
+- name: Dynamically chunk lookup filters (URL-safe, 500 chars)
   set_fact:
     __lookup_chunks: >-
-      {{ lookup_filters_input | smart_chunk_for_lookup(1500) }}
+      {{ lookup_filters_input | smart_chunk_for_lookup( 1000) }}
   when: lookup_filters_input | length > 0
 
 - name: Lookup existing objects (dynamic chunks)
@@ -159,17 +159,32 @@
 # ========================================
 # 9. FINAL OUTPUT
 # ========================================
+- name: Extract created objects from chunk results
+  set_fact:
+    created_objects: >-
+      {{ 
+        (create_results.results | default([]))
+        | selectattr('created_chunk', 'defined')
+        | map(attribute='created_chunk')
+        | sum(start=[])
+      }}
+
+- name: Extract updated objects from chunk results
+  set_fact:
+    updated_objects: >-
+      {{ 
+        (update_results.results | default([]))
+        | selectattr('updated_chunk', 'defined')
+        | map(attribute='updated_chunk')
+        | sum(start=[])
+      }}
+
 - name: Build final unified result
   set_fact:
     "{{ result_var }}": >-
       {{
-        existing_objects
-        | merge_upsert_results(
-            create_results.results | default([]),
-            update_results.results | default([])
-          )
+        existing_objects + created_objects + updated_objects
       }}
-
 # ========================================
 # 10. CLEANUP
 # ========================================
