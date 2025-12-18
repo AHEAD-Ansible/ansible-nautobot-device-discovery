@@ -1,16 +1,88 @@
+# roles/nautobot_discovery/tasks/main.yml
 ---
-- name: Validate required variables
-  fail:
-    msg: "Missing required variable {{ item }}"
-  when: lookup('vars', item, default='UNDEFINED') == 'UNDEFINED'
+- name: Load role variables
+  include_vars:
+    file: "{{ role_path }}/vars/main.yml"
+
+- name: Fail if required vars missing
+  ansible.builtin.fail:
+    msg: "Missing required variable: {{ item }}"
   loop:
     - nautobot_url
     - nautobot_token
     - device_facts
+  when: item is not defined
 
-- name: Process each device
-  include_tasks: process_device.yml
+# ----------------------------------------------------------------------
+# SCHEMA VALIDATION – PURE ANSIBLE, EE-SAFE
+# ----------------------------------------------------------------------
+- name: Validate device_facts is a list
+  ansible.builtin.assert:
+    that:
+      - device_facts is defined
+      - device_facts is iterable
+      - device_facts is not string
+    fail_msg: "device_facts must be a list"
+
+- name: Validate each device has name + interfaces
+  ansible.builtin.assert:
+    that:
+      - item.name is defined and (item.name | string | trim | length > 0)
+      - item.interfaces is defined and item.interfaces is iterable
+    fail_msg: "Device '{{ item.name | default('UNKNOWN') }}' missing name or interfaces"
   loop: "{{ device_facts }}"
+
+- name: Validate each interface has name + ip_addresses (list of strings)
+  ansible.builtin.assert:
+    that:
+      - intf.name is defined and (intf.name | string | trim | length > 0)
+      - intf.ip_addresses is defined and intf.ip_addresses is iterable
+      - intf.ip_addresses | select('string') | list | length == intf.ip_addresses | length
+    fail_msg: "Interface '{{ intf.name | default('UNKNOWN') }}' on '{{ dev.name }}': ip_addresses must be list of strings"
+  loop: "{{ device_facts | subelements('interfaces') }}"
   loop_control:
-    loop_var: device
-  ignore_errors: "{{ continue_on_error | bool }}"
+    loop_var: dev_intf
+    label: "{{ dev.name }} → {{ intf.name | default('NO_NAME') }}"
+  vars:
+    dev: "{{ dev_intf[0] }}"
+    intf: "{{ dev_intf[1] }}"
+
+- name: Validate every IP address is valid IPv4[/prefix]
+  ansible.builtin.assert:
+    that:
+      - intf.ip_addresses | map('nautobot_is_ip') | select | length == intf.ip_addresses | length
+    fail_msg: "Interface '{{ intf.name | default('UNKNOWN') }}' on '{{ dev.name }}' has invalid IPs (must be valid IPv4 with optional /0-32 prefix)"
+  loop: "{{ device_facts | subelements('interfaces') }}"
+  loop_control:
+    loop_var: dev_intf
+    label: "{{ dev.name }} → {{ intf.name | default('NO_NAME') }}"
+  vars:
+    dev: "{{ dev_intf[0] }}"
+    intf: "{{ dev_intf[1] }}"
+
+# ----------------------------------------------------------------------
+# API & Upsert Flow
+# ----------------------------------------------------------------------
+- include_tasks: set_api_globals.yml
+- include_tasks: prepare_namespace.yml
+- include_tasks: prepare_location_types.yml
+- include_tasks: prepare_locations.yml
+#- include_tasks: prepare_manufacturers.yml
+#- include_tasks: prepare_tenants.yml
+#- include_tasks: prepare_tags.yml
+#- include_tasks: prepare_roles.yml
+#- include_tasks: prepare_platforms.yml
+#- include_tasks: prepare_device_types.yml
+#- include_tasks: prepare_software_versions.yml
+#- include_tasks: prepare_racks.yml
+#
+#- include_tasks: upsert_devices.yml
+#- include_tasks: upsert_vlans.yml
+#- include_tasks: upsert_vrfs.yml
+#- include_tasks: upsert_vrf_assignments.yml
+#- include_tasks: upsert_interfaces.yml
+#- include_tasks: upsert_prefixes.yml
+#- include_tasks: upsert_ip_addresses.yml
+#- include_tasks: assign_ips_to_interfaces.yml
+#- include_tasks: assign_primary_ips.yml
+#  ignore_errors: "{{ nautobot_discovery_continue_on_error | default(false) }}"

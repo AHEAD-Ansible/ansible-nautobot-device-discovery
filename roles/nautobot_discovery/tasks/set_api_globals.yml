@@ -1,0 +1,12 @@
+---
+- name: Load endpoint globals once
+  include_vars:
+    file: "{{ role_path }}/vars/endpoints.yml"
+    name: _endpoint_globals
+  when: _endpoint_globals is not defined
+
+- name: Register api_base_url and api_headers
+  set_fact:
+    _api_base_url: "{{ _endpoint_globals.api_base_url }}"
+    _api_headers: "{{ _endpoint_globals.api_headers }}"
+  when: _endpoint_globals is defined

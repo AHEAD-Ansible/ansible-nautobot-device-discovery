@@ -1,203 +1,175 @@
 ---
-# UNIVERSAL BULK UPSERT (DRY Version) — DYNAMIC CHUNKING
-# Can be invoked with just endpoint_name, desired_bodies, and result_var.
+# =============================================================================
+# Nautobot API Upsert Task
+# =============================================================================
+#
+# PURPOSE:
+#   Perform idempotent upsert (create or update) of Nautobot objects via REST API.
+#
+# REQUIRED INPUT VARIABLES:
+#   - endpoint_name     : Key in endpoints.yml (e.g., 'namespaces')
+#   - desired_bodies    : List of dicts representing desired object state
+#   - result_var        : Name of fact to store final merged results
+#
+# OPTIONAL INPUT VARIABLES:
+#   - override_lookup_key : Force a specific lookup key (defaults to endpoint.lookup_key)
+#
+# DESIGN PRINCIPLES:
+#   • Zero variable name collisions across includes
+#   • No Jinja2 templating in set_fact keys or complex expressions
+#   • All child tasks receive fully resolved, static-named inputs
+#   • Safe handling of empty creates/updates via conditional skips
+#   • Comprehensive cleanup to prevent fact bleed between runs
+#
+# =============================================================================
 
-# INPUTS:
-#   - endpoint_name: string (e.g., "vrfs")
-#   - desired_bodies: list[dict]
-#   - result_var: string
-# OPTIONAL:
-#   - override_lookup_key
-#   - extra_lookup_filters
-#   - debug_mode
+# -----------------------------------------------------------------------------
+# 0. Global API Configuration
+# -----------------------------------------------------------------------------
+- name: Ensure API globals are loaded
+  include_tasks: set_api_globals.yml
 
-# ========================================
-# 0. LOAD ENDPOINT METADATA
-# ========================================
-- name: Load endpoints.yml once
+# -----------------------------------------------------------------------------
+# 1. Load Endpoint Definitions (once per play)
+# -----------------------------------------------------------------------------
+- name: Load endpoint definitions from endpoints.yml
   include_vars:
     file: "{{ role_path }}/vars/endpoints.yml"
     name: all_endpoints
   when: all_endpoints is not defined
 
-- name: Set endpoint definition
+# -----------------------------------------------------------------------------
+# 2. Resolve Current Endpoint Metadata
+# -----------------------------------------------------------------------------
+- name: Extract endpoint configuration for {{ endpoint_name }}
   set_fact:
-    endpoint: "{{ all_endpoints.endpoints[endpoint_name] }}"
+    current_endpoint: "{{ all_endpoints.endpoints[endpoint_name] }}"
 
-# ========================================
-# 1. VALIDATE DESIRED_BODIES AGAINST ENDPOINT SCHEMA
-# ========================================
-- name: Validate required fields presence
-  assert:
-    that:
-      - desired_bodies | length > 0
-      - desired_bodies | map(attribute=field) | select('defined') | list | length == desired_bodies | length
-    fail_msg: "api_upsert: Missing one or more required fields for endpoint {{ endpoint_name }}. Required: {{ endpoint.required_fields }}"
-  loop: "{{ endpoint.required_fields }}"
-  loop_control:
-    loop_var: field
-  when: desired_bodies | length > 0
-
-# ========================================
-# 2. SET DEFAULTS FROM ENDPOINT OR GLOBAL VARS
-# ========================================
-- name: Set lookup_key first
+# -----------------------------------------------------------------------------
+# 3. Determine Lookup Key
+# -----------------------------------------------------------------------------
+- name: Resolve lookup key (override → endpoint → 'name')
   set_fact:
-    lookup_key: "{{ override_lookup_key | default(endpoint.lookup_key | default('name')) }}"
+    lookup_key: >-
+      {{ override_lookup_key
+         | default(current_endpoint.lookup_key | default('name')) }}
 
-- name: Resolve unique_keys via plugin
+# -----------------------------------------------------------------------------
+# 4. Resolve Unique Keys for Matching
+# -----------------------------------------------------------------------------
+- name: Determine unique key(s) for existing object lookup
   set_fact:
-    unique_keys: "{{ endpoint | resolve_unique_keys(lookup_key) }}"
-    debug_mode: "{{ debug_mode | default(nautobot_discovery_debug | default(false)) }}"
-    endpoint_path: "{{ endpoint.path }}"
+    upsert_unique_keys: >-
+      {{ current_endpoint | resolve_unique_keys(lookup_key) }}
 
-# ========================================
-# 3. BUILD LOOKUP FILTERS FROM DESIRED_BODIES
-# ========================================
-- name: Auto-build lookup filters from unique keys
-  set_fact:
-    lookup_filters_input: >-
-      {{ desired_bodies | build_lookup_filters(unique_keys, endpoint.relationships | default({})) }}
-
-- name: Validate lookup filters now exist if needed
-  assert:
-    that:
-      - lookup_filters_input is defined and lookup_filters_input is iterable and lookup_filters_input | length > 0 or desired_bodies | length == 0
-    fail_msg: "api_upsert: lookup_filters_input required if desired_bodies non-empty"
-  when: desired_bodies | length > 0
-
-# ========================================
-# 4. DYNAMIC CHUNKED LOOKUP (URL-SAFE)
-# ========================================
-- name: Initialize existing_objects
-  set_fact:
-    existing_objects: []
-
-- name: Dynamically chunk lookup filters (URL-safe, 500 chars)
-  set_fact:
-    __lookup_chunks: >-
-      {{ lookup_filters_input | smart_chunk_for_lookup( 1000) }}
-  when: lookup_filters_input | length > 0
-
-- name: Lookup existing objects (dynamic chunks)
-  include_tasks: api_lookup_chunk.yml
-  loop: "{{ __lookup_chunks }}"
-  loop_control:
-    loop_var: __lookup_chunk
+# =============================================================================
+# 5. LOOKUP EXISTING OBJECTS
+# =============================================================================
+- name: Query Nautobot for existing objects matching desired state
+  include_tasks: api_lookup.yml
   vars:
-    lookup_endpoint: "{{ endpoint }}"
-    lookup_filters_input: "{{ __lookup_chunk }}"
-    lookup_extra_lookup_filters: "{{ extra_lookup_filters | default({}) }}"
-  when: lookup_filters_input | length > 0
+    lookup_endpoint: "{{ current_endpoint }}"
+    lookup_desired_bodies: "{{ desired_bodies }}"
+    lookup_unique_keys: "{{ upsert_unique_keys }}"
+    lookup_result_var: upsert_existing
+  when: desired_bodies | length > 0
 
-# ========================================
-# 5. BUILD EXISTING MAP
-# ========================================
-- name: Build existing_map keyed by unique_keys
+# -----------------------------------------------------------------------------
+# 6. Build Map of Existing Objects by Unique Key
+# -----------------------------------------------------------------------------
+- name: Index existing objects by unique key(s) for O(1) lookup
   set_fact:
-    existing_map: "{{ existing_objects | build_existing_map(unique_keys) }}"
-    resolved_unique_keys: "{{ unique_keys }}"
+    existing_map: >-
+      {{ upsert_existing | default([]) | build_existing_map(upsert_unique_keys) }}
 
-# ========================================
-# 6. CLASSIFY CREATES AND UPDATES
-# ========================================
-- name: Classify creates and updates
+# -----------------------------------------------------------------------------
+# 7. Classify Desired Objects: Create vs Update
+# -----------------------------------------------------------------------------
+- name: Diff desired vs existing → classify creates and updates
   set_fact:
-    results: "{{ desired_bodies | classify_upserts(existing_map | default({}), unique_keys) }}"
+    classified: >-
+      {{ desired_bodies | classify_upserts(existing_map, upsert_unique_keys) | default({'creates': [], 'updates': []}) }}
 
-# ========================================
-# 7. EXTRACT BODIES
-# ========================================
-- name: Extract create and update bodies
+# =============================================================================
+# 8. BULK CREATE (POST)
+# =============================================================================
+- name: Chunk objects for create into payload-safe batches
   set_fact:
-    create_bodies: "{{ results.creates }}"
-    update_bodies: "{{ results.updates }}"
+    create_chunks: "{{ classified.creates | smart_chunk_for_payload | default([]) }}"
 
-# ========================================
-# 8. DYNAMIC BULK CREATE / UPDATE (JSON-SAFE)
-# ========================================
-# --- CREATE (POST) ---
-- name: Dynamically chunk CREATE bodies (1MB JSON)
-  set_fact:
-    create_chunks: >-
-      {{ create_bodies | smart_chunk_for_payload(1024*1024) }}
-  when: create_bodies | length > 0
-
-- name: Bulk create (dynamic chunks)
-  include_tasks: api_bulk.yml
-  loop: "{{ create_chunks }}"
-  loop_control:
-    loop_var: chunk
+- name: Execute bulk POST for new objects
+  include_tasks: api_post_patch.yml
   vars:
     method: POST
-    api_endpoint: "{{ endpoint }}"
-    bodies: "{{ chunk }}"
-    result_var: created_chunk
-  when: create_bodies | length > 0
-  register: create_results
-
-# --- UPDATE (PATCH) ---
-- name: Dynamically chunk UPDATE bodies (1MB JSON)
-  set_fact:
-    update_chunks: >-
-      {{ update_bodies | smart_chunk_for_payload(1024*1024) }}
-  when: update_bodies | length > 0
-
-- name: Bulk patch (dynamic chunks)
-  include_tasks: api_bulk.yml
-  loop: "{{ update_chunks }}"
+    api_endpoint: "{{ current_endpoint }}"
+    bodies: "{{ item }}"
+    postpatch_result_var: upsert_created_chunk
+  loop: "{{ create_chunks }}"
   loop_control:
-    loop_var: chunk
+    label: "POST {{ item | length }} new {{ endpoint_name }}"
+  register: _create_results
+  when: create_chunks | length > 0
+
+# =============================================================================
+# 9. BULK UPDATE (PATCH)
+# =============================================================================
+- name: Chunk objects for update into payload-safe batches
+  set_fact:
+    update_chunks: "{{ classified.updates | smart_chunk_for_payload | default([]) }}"
+
+- name: Execute bulk PATCH for modified objects
+  include_tasks: api_post_patch.yml
   vars:
     method: PATCH
-    api_endpoint: "{{ endpoint }}"
-    bodies: "{{ chunk }}"
-    result_var: updated_chunk
-  when: update_bodies | length > 0
-  register: update_results
+    api_endpoint: "{{ current_endpoint }}"
+    bodies: "{{ item }}"
+    postpatch_result_var: upsert_updated_chunk
+  loop: "{{ update_chunks }}"
+  loop_control:
+    label: "PATCH {{ item | length }} modified {{ endpoint_name }}"
+  register: _update_results
+  when: update_chunks | length > 0
 
-# ========================================
-# 9. FINAL OUTPUT
-# ========================================
-- name: Extract created objects from chunk results
+# =============================================================================
+# 10. MERGE RESULTS
+# =============================================================================
+- name: Extract created objects from loop results
   set_fact:
-    created_objects: >-
-      {{ 
-        (create_results.results | default([]))
-        | selectattr('created_chunk', 'defined')
-        | map(attribute='created_chunk')
-        | sum(start=[])
-      }}
+    upsert_created: >-
+      {{ (_create_results.results
+         | default([])
+         | selectattr('skipped', 'undefined')
+         | map(attribute='results') | flatten
+         | selectattr('ansible_facts', 'defined')
+         | map(attribute='ansible_facts.upsert_created_chunk') | flatten) if _create_results is defined else [] }}
 
-- name: Extract updated objects from chunk results
+- name: Extract updated objects from loop results
   set_fact:
-    updated_objects: >-
-      {{ 
-        (update_results.results | default([]))
-        | selectattr('updated_chunk', 'defined')
-        | map(attribute='updated_chunk')
-        | sum(start=[])
-      }}
+    upsert_updated: >-
+      {{ (_update_results.results
+         | default([])
+         | selectattr('skipped', 'undefined')
+         | map(attribute='results') | flatten
+         | selectattr('ansible_facts', 'defined')
+         | map(attribute='ansible_facts.upsert_updated_chunk') | flatten) if _update_results is defined else [] }}
 
-- name: Build final unified result
+- name: Combine existing + created + updated into final result
   set_fact:
     "{{ result_var }}": >-
-      {{
-        existing_objects + created_objects + updated_objects
-      }}
-# ========================================
-# 10. CLEANUP
-# ========================================
-- name: Cleanup temporary upsert facts
+      {{ (upsert_existing | default([])) + upsert_created + upsert_updated }}
+
+# =============================================================================
+# 11. CLEANUP
+# =============================================================================
+- name: Remove temporary facts to prevent namespace pollution
   set_fact:
-    endpoint: null
-    endpoint_path: null
-    lookup_filters_input: null
-    __lookup_chunks: null
-    existing_objects: null
+    current_endpoint: null
+    lookup_key: null
+    upsert_unique_keys: null
+    upsert_existing: null
     existing_map: null
-    results: null
-    create_bodies: null
-    update_bodies: null
-    create_results: null
-    update_results: null
+    classified: null
+    create_chunks: null
+    update_chunks: null
+    upsert_created: null
+    upsert_updated: null

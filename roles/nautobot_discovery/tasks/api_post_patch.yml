@@ -1,0 +1,24 @@
+---
+# REQUIRED: api_endpoint, bodies, method, postpatch_result_var
+
+- name: "{{ method }} {{ api_endpoint.path }} (chunked)"
+  ansible.builtin.uri:
+    url: "{{ _api_base_url }}{{ api_endpoint.path }}"
+    method: "{{ method }}"
+    headers: "{{ _api_headers }}"
+    body: "{{ bodies | to_json }}"
+    body_format: json
+    validate_certs: "{{ nautobot_validate_certs | default(false) }}"
+    return_content: yes
+    status_code: "{{ 201 if method == 'POST' else 200 }}"
+  register: _postpatch_raw
+  ignore_errors: "{{ continue_on_error | default(false) }}"
+
+- name: Set chunk result
+  set_fact:
+    "{{ postpatch_result_var }}": >-
+      {{ (_postpatch_raw.json | default([]))
+         if _postpatch_raw.json is defined and _postpatch_raw.json is not string and _postpatch_raw.json is iterable
+         else [_postpatch_raw.json] if _postpatch_raw.json is defined
+         else [] }}
+  when: _postpatch_raw.status in [200, 201, 204]

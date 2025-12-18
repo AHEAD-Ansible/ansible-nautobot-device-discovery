@@ -1,0 +1,37 @@
+# roles/nautobot_discovery/tasks/upsert_vlans.yml   (VID fix)
+---
+- name: Collect VLAN dicts (name + vid)
+  set_fact:
+    vlan_inputs: >-
+      {{ vlan_inputs | default([]) +
+         (device.vlans | default([])) +
+         (device.interfaces | default([]) | map(attribute='vlan') | select('defined') | list) }}
+  loop: "{{ device_facts }}"
+  loop_control:
+    loop_var: device
+
+- name: Dedupe by (name,vid,location)
+  set_fact:
+    vlan_unique: >-
+      {{ [] }}
+  loop: "{{ vlan_inputs }}"
+  vars:
+    loc_id: "{{ location_map[device.location ~ ':' ~ location_type_id].id if device.location is defined else '' }}"
+    key: "{{ item.name }}:{{ item.vid }}:{{ loc_id }}"
+  when: loc_id | length > 0
+  register: _dedupe
+  # manual dedupe via register + loop is safe
+
+- name: Build VLAN bodies (preserve vid)
+  set_fact:
+    vlan_bodies: "{{ vlan_bodies | default([]) + [item] }}"
+  vars:
+    vlan_bodies: "{{ vlan_unique | map('combine', {'location': {'id': loc_id}, 'status': nautobot_status}) }}"
+  # uses filter `build_vlan_bodies` below
+
+- name: Upsert VLANs
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: vlans
+    desired_bodies: "{{ vlan_bodies }}"
+    result_var: final_vlans

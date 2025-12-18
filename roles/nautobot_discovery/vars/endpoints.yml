@@ -76,11 +76,16 @@ endpoints:
     object_type: dcim.locationtype
     relationships:
       parent: dcim.locationtype
+    content_types_map:
+      location: dcim.location
+      rack: dcim.rack
+      device: dcim.device
+      rackgroup: dcim.rackgroup
 
   locations:
     path: /dcim/locations/
-    required_fields: [name, location_type, status]
-    optional_fields: [parent, facility, asn, time_zone, tenant, contacts, tags]
+    required_fields: [ name, location_type, status ]
+    optional_fields: [ parent, facility, asn, time_zone, tenant, contacts, tags ]
     slug_from: name
     lookup_key: name
     object_type: dcim.location

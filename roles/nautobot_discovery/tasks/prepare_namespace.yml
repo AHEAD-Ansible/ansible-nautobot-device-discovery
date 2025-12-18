@@ -1,0 +1,19 @@
+---
+- include_tasks: set_api_globals.yml
+
+- name: Build namespace body
+  set_fact:
+    namespace_body:
+      - name: "{{ nautobot_namespace }}"
+        description: "Default namespace"
+
+- name: Upsert namespace
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: namespaces
+    desired_bodies: "{{ namespace_body }}"
+    result_var: final_namespace
+
+- name: Export ID
+  set_fact:
+    namespace_id: "{{ final_namespace[0].id }}"

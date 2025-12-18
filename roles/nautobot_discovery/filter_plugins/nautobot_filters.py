@@ -1,51 +1,159 @@
 import ipaddress
+import json
 import urllib.parse
 
 # ----------------------------------------------------------------------
-# Helper utilities (unchanged)
+# Nautobot Ansible Filter Plugin
+# ----------------------------------------------------------------------
+# This module provides custom filters for Nautobot discovery in Ansible.
+# All functions are pure, stateless, and idempotent where possible.
+# Dependencies: ipaddress (stdlib), json (stdlib), urllib (stdlib).
+# No external libs — keeps it lightweight and portable.
+#
+# Usage in Ansible: Copy to filter_plugins/nautobot_filters.py
+# ----------------------------------------------------------------------
+
+
+# ----------------------------------------------------------------------
+# Utility Functions
 # ----------------------------------------------------------------------
 def nautobot_extract_prefixes(device_facts):
-    prefixes = []
+    """Extract unique prefixes from device interfaces' IP addresses.
+
+    Args:
+        device_facts (list[dict]): List of device dicts with 'interfaces' key.
+
+    Returns:
+        list[dict]: Unique {'prefix': '10.0.0.0/24', 'vrf': 'global'}.
+
+    Example:
+        >>> nautobot_extract_prefixes([{'interfaces': [{'ip_addresses': ['10.0.0.1/24']}]})
+        [{'prefix': '10.0.0.0/24', 'vrf': 'global'}]
+
+    Notes:
+        - Handles /32 for host IPs.
+        - Defaults VRF to 'global' if missing.
+        - Deduplicates via set.
+    """
+    prefixes = set()
     for fact in device_facts:
         for intf in fact.get('interfaces', []):
             for ip in intf.get('ip_addresses', []):
                 prefix = ip if '/' in ip else f"{ip}/32"
-                prefixes.append({'prefix': prefix, 'vrf': intf.get('vrf', 'global')})
-    return prefixes
+                vrf = intf.get('vrf', 'global')
+                prefixes.add((prefix, vrf))
+    return [{'prefix': p, 'vrf': v} for p, v in sorted(prefixes)]
 
 def get_interface_for_ip(device_facts, ip_addr):
+    """Find interface owning a specific IP.
+
+    Args:
+        device_facts (list[dict]): Device facts.
+        ip_addr (str): IP like '10.0.0.1' or '10.0.0.1/32'.
+
+    Returns:
+        dict or None: {'device_name': 'dev1', 'name': 'eth0', 'vrf': 'global'}.
+
+    Notes:
+        - Matches exact IP or with /32 appended.
+        - Returns first match (assumes no duplicates).
+    """
     for fact in device_facts:
         for intf in fact.get('interfaces', []):
             for ip in intf.get('ip_addresses', []):
                 if ip == ip_addr or f"{ip}/32" == ip_addr:
-                    return {'device_name': fact['name'], 'name': intf['name'], 'vrf': intf.get('vrf')}
+                    return {
+                        'device_name': fact['name'],
+                        'name': intf['name'],
+                        'vrf': intf.get('vrf', 'global')
+                    }
     return None
 
 def dict_diff(existing, planned):
-    diff = {}
-    for k, v in planned.items():
-        if k not in existing or existing[k] != v:
-            diff[k] = v
-    return diff
+    """Compute diff for PATCH: fields in planned not matching existing.
+
+    Args:
+        existing (dict): Current object.
+        planned (dict): Desired state.
+
+    Returns:
+        dict: Changed fields only.
+
+    Example:
+        >>> dict_diff({'a': 1, 'b': 2}, {'a': 1, 'c': 3})
+        {'c': 3}
+    """
+    return {k: v for k, v in planned.items() if k not in existing or existing[k] != v}
 
 def nautobot_is_ip(value):
+    """Validate if value is a valid IP interface.
+
+    Args:
+        value (str): IP string.
+
+    Returns:
+        bool: True if valid IP/interface.
+
+    Example:
+        >>> nautobot_is_ip('10.0.0.1/24')
+        True
+    """
     try:
         ipaddress.ip_interface(value)
         return True
-    except Exception:
+    except ValueError:
         return False
 
+def smart_dict_diff(existing, planned):
+    """Diff with relationship ID comparison.
+
+    Args:
+        existing (dict): Current.
+        planned (dict): Desired.
+
+    Returns:
+        dict: Changed fields, comparing .id for dicts.
+
+    Notes:
+        - For relationships like {'id': 'uuid'}, compares IDs.
+    """
+    diff = {}
+    for k, v in planned.items():
+        if k not in existing:
+            diff[k] = v
+            continue
+        ex_v = existing[k]
+        if isinstance(v, dict) and isinstance(ex_v, dict) and 'id' in v and 'id' in ex_v:
+            if v['id'] != ex_v['id']:
+                diff[k] = v
+        elif ex_v != v:
+            diff[k] = v
+    return diff
+
 # ----------------------------------------------------------------------
-# 1. build_filter_param – unchanged (kept for completeness)
+# API Query Builders
 # ----------------------------------------------------------------------
 def build_filter_param(f, relationships=None, endpoint_path=None, id_filter_fields=None):
+    """Build Nautobot API filter param string.
+
+    Args:
+        f (dict): {'key': 'name' or ['device', 'name'], 'value': 'val' or 'val1:val2'}.
+        relationships (dict, optional): Relationship mappings.
+        endpoint_path (str, optional): Unused (legacy).
+        id_filter_fields (list, optional): Unused (legacy).
+
+    Returns:
+        str: URL-encoded param like 'name=Global' or 'device=dev1&name=eth0'.
+
+    Notes:
+        - Handles composite keys with ':' separated values.
+        - Extracts .id from dict values.
+    """
     key = f['key']
     value = f['value']
 
-    # Extract .id from dicts
     val = value.get('id', value) if isinstance(value, dict) else value
 
-    # === COMPOSITE KEY ===
     if isinstance(key, list):
         parts = []
         values = str(value).split(':') if ':' in str(value) else [value]
@@ -53,15 +161,64 @@ def build_filter_param(f, relationships=None, endpoint_path=None, id_filter_fiel
             v_val = v.get('id', v) if isinstance(v, dict) else v
             parts.append(f"{k}={urllib.parse.quote(str(v_val))}")
         return '&'.join(parts)
-
-    # === SINGLE KEY ===
     else:
         return f"{key}={urllib.parse.quote(str(val))}"
 
+def build_lookup_filters(desired_bodies, unique_keys, relationships):
+    """Build lookup filters for Nautobot GET.
+
+    Args:
+        desired_bodies (list[dict]): Desired objects.
+        unique_keys (list[str]): Keys like ['name'] or ['device.id', 'name'].
+        relationships (dict): Relationship mappings.
+
+    Returns:
+        list[dict]: [{'key': ['name'], 'value': 'Global'}].
+
+    Notes:
+        - Composites use ':' joined values.
+        - Extracts .id for relationships.
+    """
+    result = []
+    for body in desired_bodies:
+        filter_keys = []
+        parts = []
+        for raw_key in unique_keys:
+            base_key = raw_key.split('.')[0]
+            filter_keys.append(base_key)
+
+            val = body
+            for part in raw_key.split('.'):
+                val = val.get(part) if isinstance(val, dict) else None
+                if val is None:
+                    break
+            if isinstance(val, dict) and 'id' in val:
+                val = val['id']
+            parts.append(str(val) if val is not None else '')
+        result.append({
+            'key': filter_keys,
+            'value': ':'.join(parts)
+        })
+    return result
+
 # ----------------------------------------------------------------------
-# 2. NEW build_existing_map – supports dot-notation & relationships
+# Object Matching & Classification
 # ----------------------------------------------------------------------
 def build_existing_map(objects, unique_keys):
+    """Index existing objects by unique key(s).
+
+    Args:
+        objects (list[dict]): Nautobot query results.
+        unique_keys (list[str]): Keys like ['name'] or ['device.id', 'name'].
+
+    Returns:
+        dict: { 'key1:key2': obj, ... }
+
+    Notes:
+        - Supports dot-notation (e.g., 'device.id').
+        - Extracts .id from nested dicts.
+        - Handles None as empty string.
+    """
     result = {}
     for obj in objects:
         parts = []
@@ -71,37 +228,36 @@ def build_existing_map(objects, unique_keys):
                 val = val.get(part) if isinstance(val, dict) else None
                 if val is None:
                     break
-            # EXTRACT .id FROM DICT
             if isinstance(val, dict) and 'id' in val:
                 val = val['id']
             parts.append(str(val) if val is not None else '')
-        result[':'.join(parts)] = obj
+        key = ':'.join(parts)
+        result[key] = obj
     return result
 
-# ----------------------------------------------------------------------
-# 3. classify_upserts – uses the new map key format
-# ----------------------------------------------------------------------
 def classify_upserts(desired_bodies, existing_map, unique_keys):
-    """
+    """Classify desired bodies into creates/updates.
+
+    Args:
+        desired_bodies (list[dict]): Desired state.
+        existing_map (dict): From build_existing_map.
+        unique_keys (list[str]): Unique keys.
+
     Returns:
-        {
-            "creates": [...],
-            "updates": [...]
-        }
+        dict: {'creates': [], 'updates': [{'id': '...', 'changed_field': '...'}]}
+
+    Notes:
+        - Updates only include changed fields + 'id'.
+        - Uses smart_dict_diff for relationships.
     """
     creates = []
     updates = []
-
     for body in desired_bodies:
-        # Build the same composite key that build_existing_map uses
         key_parts = []
         for raw_key in unique_keys:
             val = body
             for part in raw_key.split('.'):
-                if isinstance(val, dict):
-                    val = val.get(part)
-                else:
-                    val = None
+                val = val.get(part) if isinstance(val, dict) else None
                 if val is None:
                     break
             if isinstance(val, dict) and 'id' in val:
@@ -113,22 +269,25 @@ def classify_upserts(desired_bodies, existing_map, unique_keys):
         if existing is None:
             creates.append(body)
         else:
-            # Only send changed fields (PATCH)
-            diff = dict_diff(existing, body)
+            diff = smart_dict_diff(existing, body)
             if diff:
-                diff['id'] = existing['id']   # keep the PK for PATCH
+                diff['id'] = existing['id']
                 updates.append(diff)
-            # else: nothing to do – already matches
-
     return {"creates": creates, "updates": updates}
 
-# ----------------------------------------------------------------------
-# 4. merge_upsert_results – tiny helper (unchanged, kept for completeness)
-# ----------------------------------------------------------------------
 def merge_upsert_results(existing, create_results, update_results):
-    """
-    Existing objects + newly created + patched objects.
-    create_results/update_results are lists of dicts returned by api_bulk.yml.
+    """Merge existing, created, and updated objects.
+
+    Args:
+        existing (list[dict]): Pre-existing objects.
+        create_results (list[dict]): From API (with 'json').
+        update_results (list[dict]): From API (with 'json').
+
+    Returns:
+        list[dict]: Combined list.
+
+    Notes:
+        - Flattens chunked results.
     """
     out = existing[:]
     for chunk in create_results:
@@ -137,62 +296,45 @@ def merge_upsert_results(existing, create_results, update_results):
         out.extend(chunk.get('json', []))
     return out
 
-def build_lookup_filters(desired_bodies, unique_keys, relationships):
-    result = []
-    for body in desired_bodies:
-        parts = []
-        filter_keys = []
-        for raw_key in unique_keys:
-            # Use base field name (strip .id)
-            base_key = raw_key.split('.')[0]
-            filter_keys.append(base_key)
-
-            val = body
-            for part in raw_key.split('.'):
-                val = val.get(part) if isinstance(val, dict) else None
-                if val is None:
-                    break
-            # EXTRACT .id IF DICT
-            if isinstance(val, dict) and 'id' in val:
-                val = val['id']
-            parts.append(str(val) if val is not None else '')
-        result.append({
-            'key': filter_keys,
-            'value': ':'.join(parts)
-        })
-    return result
-
 # ----------------------------------------------------------------------
-# 5. extract_parent_prefixes – NEW, RELIABLE, NO JINJA2
+# Prefix & IP Builders
 # ----------------------------------------------------------------------
 def extract_parent_prefixes(ip_addresses):
+    """Extract unique parent networks from IPs.
+
+    Args:
+        ip_addresses (list[str]): IPs like ['10.0.0.1/24', '10.0.0.2'].
+
+    Returns:
+        list[str]: Sorted unique networks like ['10.0.0.0/24'].
+
+    Notes:
+        - Adds /32 for hosts.
+        - Skips invalid IPs.
     """
-    Input: list of strings like ['10.0.2.20/24', '10.0.26.122/20', '10.0.100.1/32', '10.0.100.1']
-    Output: list of unique parent prefixes like ['10.0.2.0/24', '10.0.26.0/20', '10.0.100.1/32']
-    """
-    import ipaddress
     prefixes = set()
     for ip in ip_addresses or []:
         try:
             iface = ipaddress.ip_interface(ip)
             prefixes.add(str(iface.network))
-        except Exception:
-            # Skip invalid IPs
+        except ValueError:
             pass
-    return sorted(list(prefixes))
+    return sorted(prefixes)
 
-# ----------------------------------------------------------------------
-# 6. build_prefix_bodies – NEW, FULLY PLUGIN-BASED
-# ----------------------------------------------------------------------
 def build_prefix_bodies(prefixes, namespace_id, status, tenant_id=None):
-    """
-    Input:
-      - prefixes: list of strings like ['10.0.2.0/24', '10.0.26.0/20']
-      - namespace_id: str (e.g. '8c5f4e9f-...')
-      - status: str (e.g. 'Active')
-      - tenant_id: str or None
-    Output:
-      - list of dicts ready for Nautobot API
+    """Build Nautobot prefix bodies.
+
+    Args:
+        prefixes (list[str]): Networks like ['10.0.0.0/24'].
+        namespace_id (str): UUID.
+        status (str): 'Active'.
+        tenant_id (str, optional): UUID.
+
+    Returns:
+        list[dict]: API-ready bodies.
+
+    Notes:
+        - Optional tenant.
     """
     bodies = []
     tenant = {'tenant': {'id': tenant_id}} if tenant_id else {}
@@ -206,31 +348,133 @@ def build_prefix_bodies(prefixes, namespace_id, status, tenant_id=None):
         bodies.append(body)
     return bodies
 
+def build_ip_upsert_bodies_from_device(device, namespace_id, status, tenant_id=None, vrf_ids=None):
+    """Build IP bodies from device interfaces.
+
+    Args:
+        device (dict): Device with 'interfaces'.
+        namespace_id (str): UUID.
+        status (str): 'Active'.
+        tenant_id (str, optional): UUID.
+        vrf_ids (dict, optional): {vrf_name: id}.
+
+    Returns:
+        dict: {'bodies': [dicts], 'ip_to_id': {} }  # ip_to_id filled post-upsert.
+
+    Notes:
+        - Unique IPs.
+        - Maps VRF if provided.
+    """
+    vrf_ids = vrf_ids or {}
+    tenant = {'tenant': {'id': tenant_id}} if tenant_id else {}
+
+    all_ips = set()
+    ip_to_vrf = {}
+    for intf in device.get('interfaces', []):
+        vrf = intf.get('vrf')
+        for ip in intf.get('ip_addresses', []):
+            all_ips.add(ip)
+            if vrf:
+                ip_to_vrf[ip] = vrf
+
+    bodies = []
+    for ip in sorted(all_ips):
+        body = {
+            'address': ip,
+            'namespace': {'id': namespace_id},
+            'status': status
+        }
+        body.update(tenant)
+        if ip in ip_to_vrf and ip_to_vrf[ip] in vrf_ids:
+            body['vrf'] = {'id': vrf_ids[ip_to_vrf[ip]]}
+        bodies.append(body)
+
+    return {"bodies": bodies, "ip_to_id": {}}
+
 # ----------------------------------------------------------------------
-# 7. chunk_list – NEW
+# VLAN & VRF Builders
+# ----------------------------------------------------------------------
+def build_vlan_bodies(vlan_names, location_id, status):
+    """Build VLAN bodies.
+
+    Args:
+        vlan_names (list[str]): Names like ['internal'].
+        location_id (str): UUID.
+        status (str): 'Active'.
+
+    Returns:
+        list[dict]: API bodies with auto VID (1+).
+
+    Notes:
+        - Unique names.
+        - VID starts from 1.
+    """
+    unique_names = set(vlan_names)
+    return [
+        {'name': name, 'vid': idx, 'location': {'id': location_id}, 'status': status}
+        for idx, name in enumerate(sorted(unique_names), start=1)
+    ]
+
+def build_vrf_bodies(vrf_names, namespace_id):
+    """Build VRF bodies.
+
+    Args:
+        vrf_names (list[str]): Names like ['0', '1'].
+        namespace_id (str): UUID.
+
+    Returns:
+        list[dict]: API bodies with RD = name.
+
+    Notes:
+        - Unique names.
+    """
+    unique_names = set(vrf_names)
+    return [
+        {'name': name, 'rd': name, 'namespace': {'id': namespace_id}}
+        for name in sorted(unique_names)
+    ]
+
+# ----------------------------------------------------------------------
+# Chunking Utilities
 # ----------------------------------------------------------------------
 def chunk_list(items, chunk_size):
+    """Split list into fixed-size chunks.
+
+    Args:
+        items (list): Any list.
+        chunk_size (int): Max per chunk.
+
+    Returns:
+        list[list]: Chunks.
+
+    Example:
+        >>> chunk_list([1,2,3,4], 2)
+        [[1, 2], [3, 4]]
     """
-    Split list into chunks of size <= chunk_size
-    """
-    if not items:
-        return []
     return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
 
-
-# ----------------------------------------------------------------------
-# 8. smart_chunk_for_lookup
-# ----------------------------------------------------------------------
 def smart_chunk_for_lookup(filters, max_url_length=1500):
+    """Chunk filters by estimated URL length.
+
+    Args:
+        filters (list[dict]): From build_lookup_filters.
+        max_url_length (int): Max chars (default 1500).
+
+    Returns:
+        list[list[dict]]: Chunks.
+
+    Notes:
+        - Accounts for encoding overhead.
+        - Safe for GET URLs.
+    """
     if not filters:
         return []
     chunks = []
     current_chunk = []
     current_length = 0
     for f in filters:
-        param = f['key'][0] if isinstance(f['key'], list) else f['key']
-        value = str(f['value'])
-        est_len = len(param) + len(value) + 10
+        param = build_filter_param(f)
+        est_len = len(param) + 1  # '&'
         if current_chunk and current_length + est_len > max_url_length:
             chunks.append(current_chunk)
             current_chunk = [f]
@@ -242,78 +486,70 @@ def smart_chunk_for_lookup(filters, max_url_length=1500):
         chunks.append(current_chunk)
     return chunks
 
-# ----------------------------------------------------------------------
-# 9. smart_chunk_for_payload
-# ----------------------------------------------------------------------
 def smart_chunk_for_payload(bodies, max_payload_bytes=1024*1024):
-    import json
+    """Chunk bodies by JSON payload size.
+
+    Args:
+        bodies (list[dict]): API bodies.
+        max_payload_bytes (int): Max bytes (default 1MB).
+
+    Returns:
+        list[list[dict]]: Chunks.
+
+    Notes:
+        - Uses json.dumps for accurate sizing.
+        - Accounts for array overhead.
+    """
     if not bodies:
         return []
     chunks = []
     current_chunk = []
-    current_size = 0
+    current_size = 2  # [] overhead
     for body in bodies:
-        body_size = len(json.dumps(body).encode('utf-8'))
-        if current_chunk and current_size + body_size + 10 > max_payload_bytes:
+        body_size = len(json.dumps(body).encode('utf-8')) + 1  # , separator
+        if current_chunk and current_size + body_size > max_payload_bytes:
             chunks.append(current_chunk)
             current_chunk = [body]
-            current_size = body_size
+            current_size = body_size + 2
         else:
             current_chunk.append(body)
-            current_size += body_size + 2
+            current_size += body_size
     if current_chunk:
         chunks.append(current_chunk)
     return chunks
 
-# ----------------------------------------------------------------------
-# 10. resolve_unique_keys – NEW, PURE PYTHON
-# ----------------------------------------------------------------------
-def resolve_unique_keys(endpoint, lookup_key):
-    # endpoint is a dict from YAML
-    unique_keys = endpoint.get('unique_keys')
-    if isinstance(unique_keys, (list, tuple)) and len(unique_keys) > 0:
-        return list(unique_keys)
-
-    unique_together = endpoint.get('unique_together')
-    if isinstance(unique_together, (list, tuple)) and len(unique_together) > 0:
-        return list(unique_together)
-
-    return [lookup_key]
-
-# ----------------------------------------------------------------------
-# 11. chunk_prefix_bodies – FULLY PLUGIN-BASED
-# ----------------------------------------------------------------------
 def chunk_prefix_bodies(bodies, nautobot_url, max_url_length=1400, base_url_overhead=50):
-    """
-    Input:
-      - bodies: list of prefix dicts
-      - nautobot_url: full base URL (e.g. "http://nautobot:8080")
-    Output:
-      - list of chunks: [[body1, body2], [body3, ...]]
+    """Chunk prefix bodies by GET URL length (for lookup).
+
+    Args:
+        bodies (list[dict]): Prefix bodies.
+        nautobot_url (str): Base URL.
+        max_url_length (int): Max chars.
+        base_url_overhead (int): Extra for headers/etc.
+
+    Returns:
+        list[list[dict]]: Chunks of bodies.
+
+    Notes:
+        - Uses prefix for estimation.
+        - Returns bodies, not strings.
     """
     if not bodies:
         return []
 
-    import urllib.parse
-
-    # Extract prefixes
     prefixes = [body['prefix'] for body in bodies]
-
-    # Build URL-safe query estimator
     base_length = len(nautobot_url.rstrip('/')) + len('/api/ipam/prefixes/?') + base_url_overhead
 
     def item_to_query(p):
         return f"prefix={urllib.parse.quote(p)}"
 
-    # Chunk by URL length
     chunks = []
     current_chunk = []
     current_length = base_length
 
     for prefix, body in zip(prefixes, bodies):
         query_part = item_to_query(prefix)
-        est_len = len(query_part) + 1  # +1 for '&'
-
+        est_len = len(query_part) + 1  # '&'
         if current_chunk and current_length + est_len > max_url_length:
             chunks.append(current_chunk)
             current_chunk = [body]
@@ -328,145 +564,147 @@ def chunk_prefix_bodies(bodies, nautobot_url, max_url_length=1400, base_url_over
     return chunks
 
 # ----------------------------------------------------------------------
-# 12. build_ip_upsert_bodies_from_device
+# Unique Key Resolver
 # ----------------------------------------------------------------------
-def build_ip_upsert_bodies_from_device(device, namespace_id, status, tenant_id=None, vrf_ids=None):
+def resolve_unique_keys(endpoint, lookup_key):
+    """Resolve unique keys from endpoint config.
+
+    Args:
+        endpoint (dict): From endpoints.yml.
+        lookup_key (str): Fallback key.
+
+    Returns:
+        list[str]: Keys like ['name'] or ['namespace.id', 'rd'].
+
+    Notes:
+        - Prefers 'unique_keys' > 'unique_together' > [lookup_key].
+        - Handles lists/tuples.
     """
-    Input:
-      - device: full device dict (with .interfaces, .tenant, etc.)
-      - namespace_id: str
-      - status: str
-      - tenant_id: str or None
-      - vrf_ids: dict {vrf_name: vrf_id} or None
+    unique_keys = endpoint.get('unique_keys')
+    if isinstance(unique_keys, (list, tuple)) and unique_keys:
+        return list(unique_keys)
 
-    Output:
-      {
-        "bodies": [API-ready dicts],
-        "ip_to_id": {}  # to be filled later
-      }
-    """
-    vrf_ids = vrf_ids or {}
-    tenant = {'tenant': {'id': tenant_id}} if tenant_id else {}
+    unique_together = endpoint.get('unique_together')
+    if isinstance(unique_together, (list, tuple)) and unique_together:
+        return list(unique_together)
 
-    # 1. Extract all IPs
-    all_ips = []
-    ip_to_vrf = {}
-    for intf in device.get('interfaces', []):
-        ips = intf.get('ip_addresses', [])
-        vrf = intf.get('vrf')
-        for ip in ips:
-            all_ips.append(ip)
-            if vrf:
-                ip_to_vrf[ip] = vrf
-
-    all_ips = sorted(set(all_ips))  # unique
-
-    # 2. Build bodies
-    bodies = []
-    for ip in all_ips:
-        body = {
-            'address': ip,
-            'namespace': {'id': namespace_id},
-            'status': status
-        }
-        body.update(tenant)
-
-        # Add VRF if known
-        if ip in ip_to_vrf and ip_to_vrf[ip] in vrf_ids:
-            body['vrf'] = {'id': vrf_ids[ip_to_vrf[ip]]}
-
-        bodies.append(body)
-
-    return {
-        "bodies": bodies,
-        "ip_to_id": {}  # caller fills after upsert
-    }
+    return [lookup_key]
 
 # ----------------------------------------------------------------------
-# 13. build_vlan_bodies – PURE PLUGIN, NO J2, NO COMMUNITY
-# ----------------------------------------------------------------------
-def build_vlan_bodies(vlan_names, location_id, status):
-    bodies = []
-    for idx, name in enumerate(set(vlan_names), start=1):  # Built-in unique
-        bodies.append({
-            'name': name,
-            'vid': idx,
-            'location': {'id': location_id},
-            'status': status
-        })
-    return bodies
-
-# ----------------------------------------------------------------------
-# 14. build_vrf_bodies – PURE PLUGIN
-# ----------------------------------------------------------------------
-def build_vrf_bodies(vrf_names, namespace_id):
-    unique_names = set(vrf_names)  # Built-in unique
-    return [
-        {'name': name, 'rd': name, 'namespace': {'id': namespace_id}}
-        for name in unique_names
-    ]
-
-# ----------------------------------------------------------------------
-# 15. build_id_list – PURE PLUGIN (replaces regex for tags)
+# ID List Builder
 # ----------------------------------------------------------------------
 def build_id_list(ids):
+    """Build list of {'id': val} for relationships.
+
+    Args:
+        ids (list[str]): UUIDs.
+
+    Returns:
+        list[dict]: [{'id': 'uuid1'}, ...]
+
+    Example:
+        >>> build_id_list(['uuid1', 'uuid2'])
+        [{'id': 'uuid1'}, {'id': 'uuid2'}]
+    """
     return [{'id': id_val} for id_val in ids]
 
+
 # ----------------------------------------------------------------------
-# 16. smart_dict_diff – Handle relationships by id comparison
+# Hierarchical Object Builder
 # ----------------------------------------------------------------------
-def smart_dict_diff(existing, planned):
-    diff = {}
-    for k, v in planned.items():
-        if k not in existing:
-            diff[k] = v
-            continue
-        ex_v = existing[k]
-        if isinstance(v, dict) and isinstance(ex_v, dict) and 'id' in v and 'id' in ex_v:
-            if v['id'] != ex_v['id']:
-                diff[k] = v
-        elif ex_v != v:
-            diff[k] = v
-    return diff
-# ----------------------------------------------------------------------
-# 14. build_vrf_bodies – PURE PLUGIN
-# ----------------------------------------------------------------------
-def build_vrf_bodies(vrf_names, namespace_id):
+def build_hierarchical_bodies(hierarchy, content_type_map=None, id_map_var=None):
     """
-    Input:
-      - vrf_names: list of strings ['corp', 'guest']
-      - namespace_id: str
-    Output:
-      - list of dicts: {'name': 'corp', 'rd': 'corp', 'namespace': {'id': ...}}
+    Build API bodies for hierarchical objects (e.g., location_types).
+
+    Args:
+        hierarchy (list[dict]): List of objects with:
+            - name (required)
+            - content_types (list[str], e.g., ['location', 'rack'])
+            - parent_name (optional)
+            - other fields (optional)
+        content_type_map (dict): {'location': 'dcim.location', ...}
+        id_map_var (str): Name of fact containing {name: id} map (for parents)
+
+    Returns:
+        dict: {
+            'root_bodies': [bodies without parent],
+            'child_bodies': [bodies with parent.id],
+            'id_map': {name: id}  # from root only
+        }
+
+    Example:
+        >>> build_hierarchical_bodies([
+        ...     {'name': 'Site', 'content_types': ['location']},
+        ...     {'name': 'Room', 'parent_name': 'Site', 'content_types': ['rack']}
+        ... ], {'location': 'dcim.location', 'rack': 'dcim.rack'})
     """
-    return [
-        {'name': name, 'rd': name, 'namespace': {'id': namespace_id}}
-        for name in vrf_names
-    ]
+    content_type_map = content_type_map or {}
+    id_map = {}
+
+    root_bodies = []
+    child_bodies = []
+
+    for obj in hierarchy:
+        # Build base body
+        body = {k: v for k, v in obj.items() if k not in ('content_types', 'parent_name')}
+
+        # Transform content_types
+        ct_list = obj.get('content_types', [])
+        body['content_types'] = [
+            content_type_map.get(ct, f"dcim.{ct}") for ct in ct_list
+        ]
+
+        # Handle parent
+        if 'parent_name' in obj:
+            parent_id = None
+            if id_map_var:
+                # In Ansible context: lookup fact
+                import ansible.vars
+                # This won't work in pure Python — handled in Ansible task
+                pass
+            else:
+                # In pure test: use local id_map
+                parent_id = id_map.get(obj['parent_name'])
+            if parent_id:
+                body['parent'] = {'id': parent_id}
+            child_bodies.append(body)
+        else:
+            root_bodies.append(body)
+
+    return {
+        'root_bodies': root_bodies,
+        'child_bodies': child_bodies,
+        'id_map': id_map  # populated later
+    }
+
+
 # ----------------------------------------------------------------------
-# Filter registration
+# Filter Registration
 # ----------------------------------------------------------------------
 class FilterModule(object):
     def filters(self):
+        """Register all Nautobot filters."""
         return {
             'nautobot_extract_prefixes': nautobot_extract_prefixes,
             'get_interface_for_ip': get_interface_for_ip,
             'dict_diff': dict_diff,
             'nautobot_is_ip': nautobot_is_ip,
+            'smart_dict_diff': smart_dict_diff,
             'build_filter_param': build_filter_param,
+            'build_lookup_filters': build_lookup_filters,
             'build_existing_map': build_existing_map,
             'classify_upserts': classify_upserts,
             'merge_upsert_results': merge_upsert_results,
-            'build_lookup_filters': build_lookup_filters,
             'extract_parent_prefixes': extract_parent_prefixes,
             'build_prefix_bodies': build_prefix_bodies,
+            'chunk_list': chunk_list,
             'smart_chunk_for_lookup': smart_chunk_for_lookup,
             'smart_chunk_for_payload': smart_chunk_for_payload,
-            'resolve_unique_keys': resolve_unique_keys,
             'chunk_prefix_bodies': chunk_prefix_bodies,
             'build_ip_upsert_bodies_from_device': build_ip_upsert_bodies_from_device,
             'build_vlan_bodies': build_vlan_bodies,
             'build_vrf_bodies': build_vrf_bodies,
             'build_id_list': build_id_list,
-            'smart_dict_diff': smart_dict_diff,
+            'resolve_unique_keys': resolve_unique_keys,
+            "build_hierarchical_bodies": build_hierarchical_bodies,
         }

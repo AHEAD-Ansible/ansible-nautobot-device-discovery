@@ -1,0 +1,27 @@
+# roles/nautobot_discovery/tasks/prepare_locations.yml
+---
+- name: Build locations body from device_facts
+  set_fact:
+    locations_body: >-
+      {{ device_facts
+         | map(attribute='location')
+         | unique
+         | reject('equalto', none)
+         | map('combine', {
+             'location_type': location_type_ids.Campus,
+             'status': 'active'
+           })
+         | list }}
+
+- name: Upsert locations
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: locations
+    desired_bodies: "{{ locations_body }}"
+    result_var: final_locations
+
+- name: Export location IDs
+  set_fact:
+    location_ids: >-
+      {{ final_locations
+         | items2dict(key_name='name', value_name='id') }}

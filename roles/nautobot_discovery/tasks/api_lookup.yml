@@ -1,100 +1,35 @@
 ---
-# roles/nautobot_discovery/tasks/api_lookup.yml
-- name: Build cleaned filters dict
+# EXPECTS:
+#   lookup_endpoint
+#   lookup_desired_bodies
+#   lookup_unique_keys
+#   lookup_result_var
+
+- name: Build lookup filters
   set_fact:
-    cleaned_filters: >-
-      {{
-        (
-          filters
-          if (filters is defined and filters is mapping)
-          else {}
-        )
-        | dict2items
-        | rejectattr('value', 'equalto', omit)
-        | rejectattr('value', 'equalto', none)
-        | items2dict(key_name='key', value_name='value')
-      }}
+    lookup_filters: "{{ lookup_desired_bodies | build_lookup_filters(lookup_unique_keys, lookup_endpoint.relationships | default({})) }}"
 
-
-- name: Initialize query params list
+- name: Chunk filters
   set_fact:
-    query_params: []
+    lookup_chunks: "{{ lookup_filters | smart_chunk_for_lookup(1500) }}"
+  when: lookup_filters | length > 0
 
-# ---------------------------------------------------------------------
-# Handle both dictionary and list-of-dicts lookup_filters input types
-# ---------------------------------------------------------------------
-- name: Build query parameters (legacy filters)
-  set_fact:
-    query_params: "{{ query_params + new_params }}"
-  loop: "{{ cleaned_filters | dict2items }}"
-  vars:
-    key: "{{ item.key }}"
-    value: "{{ item.value }}"
-    is_list: "{{ value is sequence and not value is string }}"
-    new_params: >-
-      {{
-        [key ~ '=' ~ (value | string | urlencode)]
-        if not is_list
-        else (value
-              | map('string')
-              | map('urlencode')
-              | map('regex_replace', '^', key ~ '=')
-              | list)
-      }}
-  when:
-    - cleaned_filters is defined
-    - cleaned_filters | length > 0
-
-# ---------------------------------------------------------------------
-# NEW: Support explicit list-of-dicts lookup_filters (bulk ?rd=0&rd=1)
-# ---------------------------------------------------------------------
-- name: Extend query parameters from lookup_filters list
-  set_fact:
-    query_params: >-
-      {{ query_params + (
-           lookup_filters
-           | selectattr('key', 'defined')
-           | selectattr('value', 'defined')
-           | map(attribute='key')
-           | zip(lookup_filters | map(attribute='value') | map('string') | map('urlencode'))
-           | map('join', '=')
-           | list
-         ) }}
-  when:
-    - lookup_filters is defined
-    - lookup_filters is iterable
-    - lookup_filters | length > 0
-    - lookup_filters[0] is mapping
-
-# ---------------------------------------------------------------------
-# Build query string from accumulated params
-# ---------------------------------------------------------------------
-- name: Build query string
-  set_fact:
-    query_string: "{{ query_params | join('&') }}"
-  when:
-    - query_params is defined
-    - query_params | length > 0
-
-# ---------------------------------------------------------------------
-# Perform API lookup
-# ---------------------------------------------------------------------
-- name: Perform API lookup on {{ endpoint.path }}
+- name: GET each chunk
   ansible.builtin.uri:
-    url: "{{ api_base_url }}{{ endpoint.path }}{% if query_string is defined and query_string|length > 0 %}?{{ query_string }}{% endif %}"
-    headers: "{{ api_headers }}"
+    url: "{{ _api_base_url }}{{ lookup_endpoint.path }}?{{ item | map('build_filter_param') | join('&') }}"
     method: GET
-    validate_certs: "{{ nautobot_validate_certs }}"
+    headers: "{{ _api_headers }}"
+    validate_certs: "{{ nautobot_validate_certs | default(false) }}"
     return_content: yes
     status_code: 200
-  register: api_result
-  ignore_errors: "{{ continue_on_error | bool }}"
-  retries: "{{ nautobot_discovery_retry_attempts }}"
-  delay: 5
+  loop: "{{ lookup_chunks | default([]) }}"
+  register: lookup_raw
 
-# ---------------------------------------------------------------------
-# Store results
-# ---------------------------------------------------------------------
-- name: Set lookup results as list
+- name: Flatten results
   set_fact:
-    "{{ var_name }}": "{{ api_result.json.results | default([]) if api_result.status == 200 else [] }}"
+    "{{ lookup_result_var }}": >-
+      {{ (lookup_raw.results | default([]))
+         | selectattr('status','==',200)
+         | map(attribute='json.results')
+         | flatten
+         | default([]) }}

@@ -1,3 +1,51 @@
-#SPDX-License-Identifier: MIT-0
 ---
-# vars file for nautobot_discovery
+device_facts_schema:
+  type: array
+  items:
+    type: object
+    required:
+      - name
+      - interfaces
+    properties:
+      name:
+        type: string
+      interfaces:
+        type: array
+        items:
+          type: object
+          required:
+            - name
+            - ip_addresses
+          properties:
+            name:
+              type: string
+            ip_addresses:
+              type: array
+              items:
+                type: string
+            vrf:
+              type: [string, "null"]
+            vlan:
+              type: [string, "null"]
+      location:
+        type: [string, "null"]
+      manufacturer:
+        type: string
+      platform:
+        type: string
+      role:
+        type: string
+      serial_number:
+        type: string
+      software_version:
+        type: string
+      primary_ip4:
+        type: [string, "null"]
+      vlans:
+        type: array
+        items:
+          type: string
+      vrfs:
+        type: array
+        items:
+          type: string

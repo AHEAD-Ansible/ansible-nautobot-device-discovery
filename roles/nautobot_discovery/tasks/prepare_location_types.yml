@@ -1,0 +1,80 @@
+---
+# =============================================================================
+# Prepare Location Types (Hierarchical, Plugin-Driven)
+# =============================================================================
+
+- name: Define location type hierarchy
+  set_fact:
+    location_type_hierarchy:
+      - name: Site
+        content_types: [rackgroup, rack, device, prefix, vlangroup]
+        description: "Top-level site container"
+      - name: RackGroup
+        parent_name: Site
+        content_types: [rack]
+        description: "Logical grouping of racks"
+      - name: Rack
+        parent_name: RackGroup
+        content_types: [device]
+        description: "Physical rack"
+
+- name: Build root location type bodies
+  set_fact:
+    lt_root_bodies: >-
+      {{ location_type_hierarchy
+         | build_hierarchical_bodies(content_type_map={
+               'rackgroup': 'dcim.rackgroup',
+               'rack': 'dcim.rack',
+               'device': 'dcim.device',
+               'prefix': 'ipam.prefix',
+               'vlangroup': 'ipam.vlangroup'})
+         | json_query('root_bodies') }}
+
+- name: Rebuild lt_root_bodies with sorted content_types for idempotency
+  set_fact:
+    sorted_lt_root_bodies: "{{ sorted_lt_root_bodies | default([]) + [item | combine({'content_types': item.content_types | sort})] }}"
+  loop: "{{ lt_root_bodies }}"
+
+- name: Update lt_root_bodies
+  set_fact:
+    lt_root_bodies: "{{ sorted_lt_root_bodies }}"
+
+- name: Upsert root location types
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: location_types
+    desired_bodies: "{{ lt_root_bodies }}"
+    result_var: lt_root_results
+
+- name: Build ID map from root results
+  set_fact:
+    lt_id_map: >-
+      {{ lt_root_results | items2dict(key_name='name', value_name='id') }}
+
+- name: Initialize child location type bodies
+  set_fact:
+    lt_child_bodies: []
+
+- name: Build child location type bodies
+  set_fact:
+    lt_child_bodies: >-
+      {{ lt_child_bodies + [item | combine({'parent': {'id': lt_id_map[item.parent_name]},
+        'content_types': item.content_types | map('regex_replace', '^(rackgroup|rack|device)$', 'dcim.\\1') 
+        | map('regex_replace', '^(prefix|vlangroup)$', 'ipam.\\1') | sort | list})] }}
+  loop: "{{ location_type_hierarchy | selectattr('parent_name', 'defined') }}"
+
+- name: Upsert child location types
+  include_tasks: api_upsert.yml
+  vars:
+    endpoint_name: location_types
+    desired_bodies: "{{ lt_child_bodies }}"
+    result_var: lt_child_results
+
+- name: Merge all location types
+  set_fact:
+    final_location_types: "{{ lt_root_results + lt_child_results }}"
+
+- name: Export location type IDs
+  set_fact:
+    location_type_ids: >-
+      {{ final_location_types | items2dict(key_name='name', value_name='id') }}
